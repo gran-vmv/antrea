@@ -10,7 +10,7 @@ require (
 	github.com/cenkalti/rpc2 v0.0.0-20180727162946-9642ea02d0aa // indirect
 	github.com/containernetworking/cni v0.7.1
 	github.com/containernetworking/plugins v0.8.2-0.20190724153215-ded2f1757770
-	github.com/contiv/libOpenflow v0.0.0-20200319171453-882ba6d92cbc
+	github.com/contiv/libOpenflow v0.0.0-20200424005919-3a6722c98962
 	github.com/contiv/ofnet v0.0.0-00010101000000-000000000000
 	github.com/coreos/go-iptables v0.4.1
 	github.com/davecgh/go-spew v1.1.1
@@ -52,7 +52,7 @@ require (
 )
 
 replace (
-	github.com/contiv/ofnet => github.com/wenyingd/ofnet v0.0.0-20200326015539-5862ec3fa686
+	github.com/contiv/ofnet => github.com/wenyingd/ofnet v0.0.0-20200426030717-ee308d77ef01
 	// Octant is renamed from vmware/octant to vmware-tanzu/octant since v0.9.0.
 	// However, Octant v0.9.0 K8s API is not compatible with Antrea K8s API version.
 	// Furthermore, octant v0.8 and v0.9 do not check-in some generated code required for testing
