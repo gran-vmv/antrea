@@ -15,6 +15,7 @@
 package openflow
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"strconv"
@@ -60,6 +61,8 @@ var (
 	// ofPortMarkRange takes the 16th bit of register marksReg to indicate if the ofPort number of an interface
 	// is found or not. Its value is 0x1 if yes.
 	ofPortMarkRange = binding.Range{16, 16}
+	// ofTraceflowMarkRange stores crossNodeTag at range 28-31 in marksReg.
+	ofTraceflowMarkRange = binding.Range{28, 31}
 	// ofPortRegRange takes a 32-bit range of register portCacheReg to cache the ofPort number of the interface.
 	ofPortRegRange = binding.Range{0, 31}
 )
@@ -84,6 +87,10 @@ const (
 	marksReg     regType = 0
 	portCacheReg regType = 1
 	swapReg      regType = 2
+	ingressReg   regType = 4
+	egressReg    regType = 5
+	tunnelDstReg regType = 8
+	traceflowReg regType = 9
 
 	ctZone = 0xfff0
 
@@ -189,8 +196,11 @@ func (c *client) defaultFlows() (flows []binding.Flow) {
 
 // tunnelClassifierFlow generates the flow to mark traffic comes from the tunnelOFPort.
 func (c *client) tunnelClassifierFlow(tunnelOFPort uint32, category cookie.Category) binding.Flow {
+	regName := fmt.Sprintf("%s%d", binding.NxmFieldReg, traceflowReg)
+	tunMetadataName := fmt.Sprintf("%s%d", binding.NxmFieldTunMetadata, 0)
 	return c.pipeline[classifierTable].BuildFlow(priorityNormal).
 		MatchInPort(tunnelOFPort).
+		Action().MoveRange(tunMetadataName, regName, ofTraceflowMarkRange, ofTraceflowMarkRange). // Traceflow
 		Action().LoadRegRange(int(marksReg), markTrafficFromTunnel, binding.Range{0, 15}).
 		Action().ResubmitToTable(conntrackTable).
 		Cookie(c.cookieAllocator.Request(category).Raw()).
@@ -261,6 +271,17 @@ func (c *client) connectionTrackFlows(category cookie.Category) (flows []binding
 	return
 }
 
+// Connection track flows for traceflow
+func (c *client) traceflowConnectionTrackFlows(crossNodeTag uint8, category cookie.Category) binding.Flow {
+	connectionTrackStateTable := c.pipeline[conntrackStateTable]
+	return connectionTrackStateTable.BuildFlow(priorityNormal + 2).
+		MatchRegRange(int(traceflowReg), uint32(crossNodeTag), ofTraceflowMarkRange).
+		SetHardTimeout(300).
+		Action().ResubmitToTable(connectionTrackStateTable.GetNext()).
+		Cookie(c.cookieAllocator.Request(category).Raw()).
+		Done()
+}
+
 // reEntranceBypassCTFlow generates flow that bypass CT for traffic re-entering host network space.
 // In host network space, we disable conntrack for re-entrance traffic so not to confuse conntrack
 // in host namespace, This however has inverse effect on conntrack in Antrea conntrack zone as well,
@@ -305,6 +326,22 @@ func (c *client) l2ForwardOutputFlow(category cookie.Category) binding.Flow {
 	return c.pipeline[l2ForwardingOutTable].BuildFlow(priorityNormal).MatchProtocol(binding.ProtocolIP).
 		MatchRegRange(int(marksReg), portFoundMark, ofPortMarkRange).
 		Action().OutputRegRange(int(portCacheReg), ofPortRegRange).
+		Cookie(c.cookieAllocator.Request(category).Raw()).
+		Done()
+}
+
+// Traceflow l2ForwardOutputFlow
+func (c *client) traceflowL2ForwardOutputFlow(crossNodeTag uint8, category cookie.Category) binding.Flow {
+	regName := fmt.Sprintf("%s%d", binding.NxmFieldReg, traceflowReg)
+	tunMetadataName := fmt.Sprintf("%s%d", binding.NxmFieldTunMetadata, 0)
+	return c.pipeline[l2ForwardingOutTable].BuildFlow(priorityNormal+2).
+		MatchRegRange(int(traceflowReg), uint32(crossNodeTag), ofTraceflowMarkRange).
+		SetHardTimeout(300).
+		MatchProtocol(binding.ProtocolIP).
+		MatchRegRange(int(marksReg), portFoundMark, ofPortMarkRange).
+		Action().MoveRange(regName, tunMetadataName, ofTraceflowMarkRange, ofTraceflowMarkRange).
+		Action().OutputRegRange(int(portCacheReg), ofPortRegRange).
+		Action().SendToController(1).
 		Cookie(c.cookieAllocator.Request(category).Raw()).
 		Done()
 }
@@ -404,6 +441,7 @@ func (c *client) l3FwdFlowToRemote(
 		Action().LoadRegRange(int(marksReg), portFoundMark, ofPortMarkRange).
 		// Flow based tunnel. Set tunnel destination.
 		Action().SetTunnelDst(tunnelPeer).
+		Action().LoadRegRange(int(tunnelDstReg), binary.LittleEndian.Uint32(tunnelPeer.To4()), binding.Range{0, 31}). // Traceflow
 		// Bypass l2ForwardingCalcTable and tables for ingress rules (which won't
 		// apply to packets to remote Nodes).
 		Action().ResubmitToTable(conntrackCommitTable).
@@ -533,8 +571,13 @@ func (c *client) arpNormalFlow(category cookie.Category) binding.Flow {
 // conjunctionActionFlow generates the flow to resubmit to a specific table if policyRuleConjunction ID is matched. Priority of
 // conjunctionActionFlow is priorityLow.
 func (c *client) conjunctionActionFlow(conjunctionID uint32, tableID binding.TableIDType, nextTable binding.TableIDType) binding.Flow {
+	conjReg := ingressReg
+	if tableID == egressRuleTable {
+		conjReg = egressReg
+	}
 	return c.pipeline[tableID].BuildFlow(priorityLow).MatchProtocol(binding.ProtocolIP).
 		MatchConjID(conjunctionID).
+		Action().LoadRegRange(int(conjReg), conjunctionID, binding.Range{0, 31}). // Traceflow
 		Action().ResubmitToTable(nextTable).
 		Cookie(c.cookieAllocator.Request(cookie.Policy).Raw()).
 		Done()
@@ -598,8 +641,13 @@ func (c *client) addFlowMatch(fb binding.FlowBuilder, matchType int, matchValue 
 
 // conjunctionExceptionFlow generates the flow to resubmit to a specific table if both policyRuleConjunction ID and except address are matched.
 func (c *client) conjunctionExceptionFlow(conjunctionID uint32, tableID binding.TableIDType, nextTable binding.TableIDType, matchKey int, matchValue interface{}) binding.Flow {
+	conjReg := ingressReg
+	if tableID == egressRuleTable {
+		conjReg = egressReg
+	}
 	fb := c.pipeline[tableID].BuildFlow(priorityNormal).MatchConjID(conjunctionID)
 	return c.addFlowMatch(fb, matchKey, matchValue).
+		Action().LoadRegRange(int(conjReg), conjunctionID, binding.Range{0, 31}). // Traceflow
 		Action().ResubmitToTable(nextTable).
 		Cookie(c.cookieAllocator.Request(cookie.Policy).Raw()).
 		Done()
