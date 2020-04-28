@@ -127,6 +127,8 @@ rules:
   resources:
   - nodes
   - pods
+  - services
+  - namespaces
   verbs:
   - get
   - watch
@@ -162,6 +164,17 @@ rules:
   - subjectaccessreviews
   verbs:
   - create
+- apiGroups:
+    - antrea.tanzu.vmware.com
+  resources:
+    - traceflows
+  verbs:
+    - get
+    - watch
+    - list
+    - create
+    - update
+    - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -216,6 +229,17 @@ rules:
   - subjectaccessreviews
   verbs:
   - create
+- apiGroups:
+    - antrea.tanzu.vmware.com
+  resources:
+    - traceflows
+  verbs:
+    - get
+    - watch
+    - list
+    - create
+    - update
+    - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

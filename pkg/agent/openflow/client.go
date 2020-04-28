@@ -17,7 +17,9 @@ package openflow
 import (
 	"fmt"
 	"net"
+	"math/rand"
 
+	"github.com/contiv/ofnet/ofctrl"
 	"k8s.io/klog"
 
 	"github.com/vmware-tanzu/antrea/pkg/agent/config"
@@ -119,6 +121,37 @@ type Client interface {
 
 	// GetPodFlowKeys returns the keys (match strings) of the cached flows for a Pod.
 	GetPodFlowKeys(interfaceName string) []string
+
+	// SubscribePacketIn subscribes packet-in channel in Bridge.
+	SubscribePacketIn(reason uint8, ch chan *ofctrl.PacketIn) error
+
+	// SendTraceflowPacket injects packet to specified OVS port for Openflow
+	SendTraceflowPacket(
+		crossNodeTag uint8,
+		srcMAC string,
+		dstMAC string,
+		srcIP string,
+		dstIP string,
+		IPProtocol uint8,
+		ttl uint8,
+		IPFlags uint16,
+		TCPsPort uint16,
+		TCPdPort uint16,
+		TCPFlags uint8,
+		UDPsPort uint16,
+		UDPdPort uint16,
+		ICMPType uint8,
+		ICMPCode uint8,
+		ICMPID uint16,
+		ICMPSequence uint16,
+		inPort uint32,
+		outPort int32) error
+
+	// InstallTraceflowFlows installs flows for specific traceflow request
+	InstallTraceflowFlows(crossNodeTag uint8) error
+
+	// Initial tun_metadata0 in TLV map for Traceflow
+	InitialTLVMap() error
 }
 
 // GetFlowTableStatus returns an array of flow table status.
@@ -426,4 +459,111 @@ func (c *client) setupPolicyOnlyFlows() error {
 		return fmt.Errorf("failed to setup policy-only flows: %w", err)
 	}
 	return nil
+}
+
+func (c *client) SubscribePacketIn(reason uint8, ch chan *ofctrl.PacketIn) error {
+	return c.bridge.SubscribePacketIn(reason, ch)
+}
+
+func (c *client) SendTraceflowPacket(
+	crossNodeTag uint8,
+	srcMAC string,
+	dstMAC string,
+	srcIP string,
+	dstIP string,
+	IPProtocol uint8,
+	ttl uint8,
+	IPFlags uint16,
+	TCPsPort uint16,
+	TCPdPort uint16,
+	TCPFlags uint8,
+	UDPsPort uint16,
+	UDPdPort uint16,
+	ICMPType uint8,
+	ICMPCode uint8,
+	ICMPID uint16,
+	ICMPSequence uint16,
+	inPort uint32,
+	outPort int32) error {
+
+	regName := fmt.Sprintf("%s%d", binding.NxmFieldReg, traceflowReg)
+
+	packetOutBuilder := c.bridge.BuildPacketOut()
+	parsedSrcMAC, _ := net.ParseMAC(srcMAC)
+	parsedDstMAC, _ := net.ParseMAC(dstMAC)
+	if dstMAC == "" {
+		parsedDstMAC = globalVirtualMAC
+	}
+
+	packetOutBuilder = packetOutBuilder.SetSrcMAC(parsedSrcMAC)
+	packetOutBuilder = packetOutBuilder.SetDstMAC(parsedDstMAC)
+	packetOutBuilder = packetOutBuilder.SetSrcIP(net.ParseIP(srcIP))
+	packetOutBuilder = packetOutBuilder.SetDstIP(net.ParseIP(dstIP))
+
+	if ttl == 0 {
+		packetOutBuilder = packetOutBuilder.SetTTL(128)
+	} else {
+		packetOutBuilder = packetOutBuilder.SetTTL(ttl)
+	}
+	packetOutBuilder = packetOutBuilder.SetIPFlags(IPFlags)
+
+	switch IPProtocol {
+	case 1:
+		packetOutBuilder = packetOutBuilder.SetIPProtocol(binding.ProtocolICMP)
+		packetOutBuilder = packetOutBuilder.SetICMPType(ICMPType)
+		packetOutBuilder = packetOutBuilder.SetICMPCode(ICMPCode)
+		packetOutBuilder = packetOutBuilder.SetICMPID(ICMPID)
+		packetOutBuilder = packetOutBuilder.SetICMPSequence(ICMPSequence)
+	case 6:
+		packetOutBuilder = packetOutBuilder.SetIPProtocol(binding.ProtocolTCP)
+		if TCPsPort == 0 {
+			TCPsPort = uint16(rand.Uint32())
+		}
+		packetOutBuilder = packetOutBuilder.SetTCPsPort(TCPsPort)
+		packetOutBuilder = packetOutBuilder.SetTCPdPort(TCPdPort)
+		packetOutBuilder = packetOutBuilder.SetTCPFlags(TCPFlags)
+	case 17:
+		packetOutBuilder = packetOutBuilder.SetIPProtocol(binding.ProtocolUDP)
+		packetOutBuilder = packetOutBuilder.SetUDPsPort(UDPsPort)
+		packetOutBuilder = packetOutBuilder.SetUDPdPort(UDPdPort)
+	}
+
+	packetOutBuilder = packetOutBuilder.SetInport(inPort)
+	if outPort != -1 {
+		packetOutBuilder = packetOutBuilder.SetOutport(uint32(outPort))
+	}
+	packetOutBuilder = packetOutBuilder.AddLoadAction(regName, uint64(crossNodeTag), ofTraceflowMarkRange)
+
+	packetOutObj := packetOutBuilder.Done()
+	return c.bridge.SendPacketOut(packetOutObj)
+}
+
+func (c *client) InstallTraceflowFlows(crossNodeTag uint8) error {
+	klog.Infof("DEBUG: Installing traceflow output entries %s", crossNodeTag)
+	flow := c.traceflowL2ForwardOutputFlow(crossNodeTag, cookie.Default)
+	if err := c.Add(flow); err != nil {
+		return err
+	}
+	klog.Infof("DEBUG: Installing traceflow invalid entries %s", crossNodeTag)
+	flow = c.traceflowConnectionTrackFlows(crossNodeTag, cookie.Default)
+	if err := c.Add(flow); err != nil {
+		return err
+	}
+	klog.Infof("DEBUG: Installing traceflow network policy entries %s", crossNodeTag)
+	flows := []binding.Flow{}
+	for _, ctx := range c.globalConjMatchFlowCache {
+		if ctx.dropFlow != nil {
+			flows = append(
+				flows,
+				ctx.dropFlow.CopyToBuilder().
+					MatchRegRange(int(traceflowReg), uint32(crossNodeTag), ofTraceflowMarkRange).
+					Action().SendToController(1).
+					Done())
+		}
+	}
+	return c.AddAll(flows)
+}
+
+func (c *client) InitialTLVMap() error {
+	return c.bridge.AddTLVMap(0x0104, 0x80, 4, 0)
 }
