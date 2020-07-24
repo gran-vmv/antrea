@@ -674,7 +674,7 @@ func (c *client) SendTraceflowPacket(
 	inPort uint32,
 	outPort int32) error {
 
-	regName := fmt.Sprintf("%s%d", binding.NxmFieldReg, TraceflowReg)
+	regName := fmt.Sprintf("%s%d", binding.NxmFieldTunMetadata, TraceflowMetadata)
 
 	packetOutBuilder := c.bridge.BuildPacketOut()
 	parsedSrcMAC, _ := net.ParseMAC(srcMAC)
@@ -743,7 +743,7 @@ func (c *client) InstallTraceflowFlows(dataplaneTag uint8) error {
 			flows = append(
 				flows,
 				ctx.dropFlow.CopyToBuilder(priorityNormal+2, false).
-					MatchRegRange(int(TraceflowReg), uint32(dataplaneTag), OfTraceflowMarkRange).
+					MatchTunMetadataRange(int(TraceflowMetadata), uint32(dataplaneTag), OfTraceflowMarkRange).
 					SetHardTimeout(300).
 					Action().SendToController(1).
 					Done())

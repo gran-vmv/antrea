@@ -16,6 +16,7 @@ package traceflow
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -70,11 +71,15 @@ func (c *Controller) parsePacketIn(pktIn *ofctrl.PacketIn) (*opsv1alpha1.Tracefl
 	var match *ofctrl.MatchField
 
 	// Get data plane tag.
-	if match = getMatchRegField(matchers, uint32(openflow.TraceflowReg)); match == nil {
+	if match = getMatchTunMetadataField(matchers, uint32(openflow.TraceflowMetadata)); match == nil {
 		return nil, nil, errors.New("traceflow data plane tag not found")
 	}
 	rngTag := openflow13.NewNXRange(int(openflow.OfTraceflowMarkRange[0]), int(openflow.OfTraceflowMarkRange[1]))
-	tag, err := getInfoInReg(match, rngTag)
+	tagByte, err := getInfoInMetadata(match)
+	tag := binary.BigEndian.Uint32(tagByte)
+	klog.Errorf("DEBUG: tag1=%d", tag)
+	tag = ofctrl.GetUint32ValueWithRange(tag, rngTag)
+	klog.Errorf("DEBUG: tag2=%d", tag)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -195,6 +200,10 @@ func getMatchRegField(matchers *ofctrl.Matchers, regNum uint32) *ofctrl.MatchFie
 	return matchers.GetMatchByName(fmt.Sprintf("NXM_NX_REG%d", regNum))
 }
 
+func getMatchTunMetadataField(matchers *ofctrl.Matchers, regNum uint32) *ofctrl.MatchField {
+	return matchers.GetMatchByName(fmt.Sprintf("NXM_NX_TUN_METADATA%d", regNum))
+}
+
 func getMatchTunnelDstField(matchers *ofctrl.Matchers) *ofctrl.MatchField {
 	return matchers.GetMatchByName(fmt.Sprintf("NXM_NX_TUN_IPV4_DST"))
 }
@@ -208,6 +217,14 @@ func getInfoInReg(regMatch *ofctrl.MatchField, rng *openflow13.NXRange) (uint32,
 		return ofctrl.GetUint32ValueWithRange(regValue.Data, rng), nil
 	}
 	return regValue.Data, nil
+}
+
+func getInfoInMetadata(regMatch *ofctrl.MatchField) ([]byte, error) {
+	regValue, ok := regMatch.GetValue().([]byte)
+	if !ok {
+		return nil, errors.New("tunnel metadata value cannot be got")
+	}
+	return regValue, nil
 }
 
 func getInfoInTunnelDst(regMatch *ofctrl.MatchField) (string, error) {

@@ -38,6 +38,16 @@ func (b *ofFlowBuilder) MatchTunMetadata(index int, data uint32) FlowBuilder {
 	return b
 }
 
+func (b *ofFlowBuilder) MatchTunMetadataRange(index int, data uint32, rng Range) FlowBuilder {
+	tm := &ofctrl.NXTunMetadata{
+		ID:    index,
+		Data:  data,
+		Range: rng.ToNXRange(),
+	}
+	b.ofFlow.Match.TunMetadatas = append(b.ofFlow.Match.TunMetadatas, tm)
+	return b
+}
+
 func (b *ofFlowBuilder) SetHardTimeout(timout uint16) FlowBuilder {
 	b.ofFlow.HardTimeout = timout
 	return b

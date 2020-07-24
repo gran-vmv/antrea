@@ -220,6 +220,7 @@ type FlowBuilder interface {
 	MatchConjID(value uint32) FlowBuilder
 	MatchDstPort(port uint16, portMask *uint16) FlowBuilder
 	MatchTunMetadata(index int, data uint32) FlowBuilder
+	MatchTunMetadataRange(index int, data uint32, rng Range) FlowBuilder
 	// MatchCTSrcIP matches the source IPv4 address of the connection tracker original direction tuple.
 	MatchCTSrcIP(ip net.IP) FlowBuilder
 	// MatchCTSrcIPNet matches the source IPv4 address of the connection tracker original direction tuple with IP masking.

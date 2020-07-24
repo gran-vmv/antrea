@@ -29,7 +29,6 @@ import (
 	"github.com/vmware-tanzu/antrea/pkg/agent/metrics"
 	"github.com/vmware-tanzu/antrea/pkg/agent/openflow/cookie"
 	"github.com/vmware-tanzu/antrea/pkg/agent/types"
-	"github.com/vmware-tanzu/antrea/pkg/features"
 	binding "github.com/vmware-tanzu/antrea/pkg/ovs/openflow"
 	"github.com/vmware-tanzu/antrea/third_party/proxy"
 )
@@ -176,6 +175,7 @@ func GetAntreaPolicyMultiTierTables() []binding.TableIDType {
 }
 
 type regType uint
+type metadataType uint
 
 func (rt regType) number() string {
 	return fmt.Sprint(rt)
@@ -200,7 +200,8 @@ const (
 	serviceLearnReg         = endpointPortReg // Use reg4[16..18] to store endpoint selection states.
 	EgressReg       regType = 5
 	IngressReg      regType = 6
-	TraceflowReg    regType = 9 // Use reg9[28..31] to store traceflow dataplaneTag.
+	// Use tun_metadata0[28..31] to store traceflow dataplaneTag.
+	TraceflowMetadata metadataType = 0
 	// cnpDropConjunctionIDReg reuses reg3 which will also be used for storing endpoint IP to store the rule ID. Since
 	// the service selection will finish when a packet hitting NetworkPolicy related rules, there is no conflict.
 	cnpDropConjunctionIDReg regType = 3
@@ -437,11 +438,6 @@ func (c *client) defaultFlows() (flows []binding.Flow) {
 func (c *client) tunnelClassifierFlow(tunnelOFPort uint32, category cookie.Category) binding.Flow {
 	flowBuilder := c.pipeline[ClassifierTable].BuildFlow(priorityNormal).
 		MatchInPort(tunnelOFPort)
-	if features.DefaultFeatureGate.Enabled(features.Traceflow) {
-		regName := fmt.Sprintf("%s%d", binding.NxmFieldReg, TraceflowReg)
-		tunMetadataName := fmt.Sprintf("%s%d", binding.NxmFieldTunMetadata, 0)
-		flowBuilder = flowBuilder.Action().MoveRange(tunMetadataName, regName, OfTraceflowMarkRange, OfTraceflowMarkRange)
-	}
 	return flowBuilder.Action().LoadRegRange(int(marksReg), markTrafficFromTunnel, binding.Range{0, 15}).
 		Action().LoadRegRange(int(marksReg), macRewriteMark, macRewriteMarkRange).
 		Action().GotoTable(conntrackTable).
@@ -568,7 +564,7 @@ func (c *client) connectionTrackFlows(category cookie.Category) []binding.Flow {
 func (c *client) traceflowConnectionTrackFlows(dataplaneTag uint8, category cookie.Category) binding.Flow {
 	connectionTrackStateTable := c.pipeline[conntrackStateTable]
 	flowBuilder := connectionTrackStateTable.BuildFlow(priorityLow+2).
-		MatchRegRange(int(TraceflowReg), uint32(dataplaneTag), OfTraceflowMarkRange).
+		MatchTunMetadataRange(int(TraceflowMetadata), uint32(dataplaneTag), OfTraceflowMarkRange).
 		SetHardTimeout(300).
 		Cookie(c.cookieAllocator.Request(category).Raw())
 	if c.enableProxy {
@@ -632,14 +628,11 @@ func (c *client) l2ForwardOutputFlow(category cookie.Category) binding.Flow {
 // traceflowL2ForwardOutputFlow generates Traceflow specific flow that outputs traceflow packets to OVS port and Antrea
 // Agent after L2forwarding calculation.
 func (c *client) traceflowL2ForwardOutputFlow(dataplaneTag uint8, category cookie.Category) binding.Flow {
-	regName := fmt.Sprintf("%s%d", binding.NxmFieldReg, TraceflowReg)
-	tunMetadataName := fmt.Sprintf("%s%d", binding.NxmFieldTunMetadata, 0)
 	return c.pipeline[L2ForwardingOutTable].BuildFlow(priorityNormal+2).
-		MatchRegRange(int(TraceflowReg), uint32(dataplaneTag), OfTraceflowMarkRange).
+		MatchTunMetadataRange(int(TraceflowMetadata), uint32(dataplaneTag), OfTraceflowMarkRange).
 		SetHardTimeout(300).
 		MatchProtocol(binding.ProtocolIP).
 		MatchRegRange(int(marksReg), portFoundMark, ofPortMarkRange).
-		Action().MoveRange(regName, tunMetadataName, OfTraceflowMarkRange, OfTraceflowMarkRange).
 		Action().OutputRegRange(int(portCacheReg), ofPortRegRange).
 		Action().SendToController(1).
 		Cookie(c.cookieAllocator.Request(category).Raw()).
