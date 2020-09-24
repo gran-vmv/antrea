@@ -34,13 +34,13 @@ pushd $THIS_DIR > /dev/null
 
 docker pull ubuntu:20.04
 
-docker pull antrea/openvswitch:$OVS_VERSION
+#docker pull antrea/openvswitch:$OVS_VERSION
 
 docker build \
        -t antrea/base-ubuntu:$OVS_VERSION \
        -f Dockerfile \
        --build-arg OVS_VERSION=$OVS_VERSION .
 
-docker push antrea/base-ubuntu:$OVS_VERSION
+#docker push antrea/base-ubuntu:$OVS_VERSION
 
 popd > /dev/null

@@ -89,6 +89,10 @@ fi
 curl https://github.com/jianjuns/ovs/commit/714b133ef2b2d8dac0770b78265a8b52c2f00f2f.patch | \
     git apply
 
+echo "AAAA Apply test patch"
+curl https://github.com/YiHungWei/ovs/commit/2c5d0f30d0ade545e93b832446ca2e532b07ca8b.patch | \
+    git apply
+
 # OVS hardcodes the installation path to /usr/lib/python3.7/dist-packages/ but this location
 # does not seem to be in the Python path in Ubuntu 20.04. There may be a better way to do this,
 # but this seems like an acceptable workaround.

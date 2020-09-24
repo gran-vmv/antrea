@@ -52,7 +52,7 @@ docker build \
        -t antrea/openvswitch:$OVS_VERSION \
        --build-arg OVS_VERSION=$OVS_VERSION .
 
-docker push antrea/openvswitch-debs:$OVS_VERSION
-docker push antrea/openvswitch:$OVS_VERSION
+#docker push antrea/openvswitch-debs:$OVS_VERSION
+#docker push antrea/openvswitch:$OVS_VERSION
 
 popd > /dev/null
