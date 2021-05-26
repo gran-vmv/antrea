@@ -3220,6 +3220,7 @@ func testFQDNPolicy(t *testing.T) {
 		if connectivity != tc.expectedConnectivity {
 			t.Errorf("failure -- wrong results for probe: Source %s/%s --> Dest %s:%d connectivity: %v, expected: %v",
 				tc.clientPod.Namespace(), tc.clientPod.PodName(), tc.destAddr, tc.destPort, connectivity, tc.expectedConnectivity)
+			//time.Sleep(5 * time.Hour)
 		}
 	}
 	// cleanup test resources
