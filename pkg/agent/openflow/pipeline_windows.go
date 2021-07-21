@@ -75,37 +75,6 @@ func (c *client) snatMarkFlows(snatIP net.IP, mark uint32) []binding.Flow {
 	return flows
 }
 
-// hostBridgeUplinkFlows generates the flows that forward traffic between the
-// bridge local port and the uplink port to support the host traffic with
-// outside.
-func (c *client) hostBridgeUplinkFlows(localSubnet net.IPNet, category cookie.Category) (flows []binding.Flow) {
-	flows = []binding.Flow{
-		c.pipeline[ClassifierTable].BuildFlow(priorityNormal).
-			MatchInPort(config.UplinkOFPort).
-			Action().Output(config.BridgeOFPort).
-			Cookie(c.cookieAllocator.Request(category).Raw()).
-			Done(),
-		c.pipeline[ClassifierTable].BuildFlow(priorityNormal).
-			MatchInPort(config.BridgeOFPort).
-			Action().Output(config.UplinkOFPort).
-			Cookie(c.cookieAllocator.Request(category).Raw()).
-			Done(),
-	}
-	if c.encapMode.SupportsNoEncap() {
-		// If NoEncap is enabled, the reply packets from remote Pod can be forwarded to local Pod directly.
-		// by explicitly resubmitting them to serviceHairpinTable and marking "macRewriteMark" at same time.
-		flows = append(flows, c.pipeline[ClassifierTable].BuildFlow(priorityHigh).MatchProtocol(binding.ProtocolIP).
-			MatchInPort(config.UplinkOFPort).
-			MatchDstIPNet(localSubnet).
-			Action().LoadRegRange(int(marksReg), markTrafficFromUplink, binding.Range{0, 15}).
-			Action().LoadRegRange(int(marksReg), macRewriteMark, macRewriteMarkRange).
-			Action().GotoTable(serviceHairpinTable).
-			Cookie(c.cookieAllocator.Request(category).Raw()).
-			Done())
-	}
-	return flows
-}
-
 func (c *client) l3FwdFlowToRemoteViaRouting(localGatewayMAC net.HardwareAddr, remoteGatewayMAC net.HardwareAddr,
 	category cookie.Category, peerIP net.IP, peerPodCIDR *net.IPNet) []binding.Flow {
 	if c.encapMode.NeedsDirectRoutingToPeer(peerIP, c.nodeConfig.NodeTransportIPAddr) && remoteGatewayMAC != nil {

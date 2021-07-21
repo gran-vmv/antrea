@@ -20,10 +20,20 @@ package openflow
 import (
 	"net"
 
+	"antrea.io/antrea/pkg/agent/openflow/cookie"
 	binding "antrea.io/antrea/pkg/ovs/openflow"
 )
 
 func (c *client) InstallBridgeUplinkFlows() error {
+	if !c.enableBridge {
+		return nil
+	}
+	// TODO(gran): IPv6 support
+	flows := c.hostBridgeUplinkFlows(*c.nodeConfig.PodIPv4CIDR, cookie.Default)
+	if err := c.ofEntryOperations.AddAll(flows); err != nil {
+		return err
+	}
+	c.hostNetworkingFlows = flows
 	return nil
 }
 

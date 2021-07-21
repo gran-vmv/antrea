@@ -66,10 +66,13 @@ func TestConfigureLinkAddresses(t *testing.T) {
 	assert.LessOrEqual(t, nAddrs, 2)
 
 	_, dummyAddr, _ := net.ParseCIDR("192.0.2.0/24")
+	reservedAddr := util.UplinkReservedIPNet
 
 	addTestInterfaceAddress(t, ifaceName, dummyAddr)
+	addTestInterfaceAddress(t, ifaceName, reservedAddr)
 	addrs = getTestInterfaceAddresses(t, ifaceName)
 	assert.True(t, isAddressPresent(addrs, dummyAddr), "Dummy IP address was not assigned to test interface")
+	assert.True(t, isAddressPresent(addrs, reservedAddr), "Reserved IP address was not assigned to test interface")
 
 	_, ipAddr, _ := net.ParseCIDR("192.0.3.0/24")
 	err := util.ConfigureLinkAddresses(ifaceIdx, []*net.IPNet{ipAddr})
@@ -78,4 +81,5 @@ func TestConfigureLinkAddresses(t *testing.T) {
 	addrs = getTestInterfaceAddresses(t, ifaceName)
 	assert.True(t, isAddressPresent(addrs, ipAddr), "IP address was not assigned to test interface")
 	assert.False(t, isAddressPresent(addrs, dummyAddr), "Dummy IP address should have been removed from test interface")
+	assert.True(t, isAddressPresent(addrs, reservedAddr), "Reserved IP address was not assigned to test interface")
 }

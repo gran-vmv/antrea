@@ -32,6 +32,10 @@ const (
 	FamilyIPv6 uint8 = 6
 )
 
+var (
+	_, UplinkReservedIPNet, _ = net.ParseCIDR("169.254.169.251/32")
+)
+
 func generateInterfaceName(key string, name string, useHead bool) string {
 	hash := sha1.New() // #nosec G401: not used for security purposes
 	io.WriteString(hash, key)

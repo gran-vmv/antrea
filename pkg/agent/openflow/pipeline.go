@@ -386,6 +386,7 @@ type client struct {
 	enableAntreaPolicy bool
 	enableDenyTracking bool
 	enableEgress       bool
+	enableBridge       bool
 	roundInfo          types.RoundInfo
 	cookieAllocator    cookie.Allocator
 	bridge             binding.Bridge
@@ -2180,7 +2181,7 @@ func (c *client) generatePipeline() {
 	if c.enableEgress || runtime.IsWindowsPlatform() {
 		c.pipeline[snatTable] = bridge.CreateTable(snatTable, l2ForwardingCalcTable, binding.TableMissActionNext)
 	}
-	if runtime.IsWindowsPlatform() {
+	if runtime.IsWindowsPlatform() || c.enableBridge {
 		c.pipeline[uplinkTable] = bridge.CreateTable(uplinkTable, spoofGuardTable, binding.TableMissActionNone)
 	}
 	if c.enableAntreaPolicy {
@@ -2190,7 +2191,7 @@ func (c *client) generatePipeline() {
 }
 
 // NewClient is the constructor of the Client interface.
-func NewClient(bridgeName, mgmtAddr string, ovsDatapathType ovsconfig.OVSDatapathType, enableProxy, enableAntreaPolicy, enableEgress bool, enableDenyTracking bool) Client {
+func NewClient(bridgeName, mgmtAddr string, ovsDatapathType ovsconfig.OVSDatapathType, enableProxy, enableAntreaPolicy, enableEgress bool, enableDenyTracking bool, enableBridge bool) Client {
 	bridge := binding.NewOFBridge(bridgeName, mgmtAddr)
 	policyCache := cache.NewIndexer(
 		policyConjKeyFunc,
@@ -2202,6 +2203,7 @@ func NewClient(bridgeName, mgmtAddr string, ovsDatapathType ovsconfig.OVSDatapat
 		enableAntreaPolicy:       enableAntreaPolicy,
 		enableDenyTracking:       enableDenyTracking,
 		enableEgress:             enableEgress,
+		enableBridge:             enableBridge,
 		nodeFlowCache:            newFlowCategoryCache(),
 		podFlowCache:             newFlowCategoryCache(),
 		serviceFlowCache:         newFlowCategoryCache(),
@@ -2239,4 +2241,35 @@ func (sl conjunctiveActionsInOrder) Less(i, j int) bool {
 		return sl[i].clauseID < sl[j].clauseID
 	}
 	return sl[i].nClause < sl[j].nClause
+}
+
+// hostBridgeUplinkFlows generates the flows that forward traffic between the
+// bridge local port and the uplink port to support the host traffic with
+// outside.
+func (c *client) hostBridgeUplinkFlows(localSubnet net.IPNet, category cookie.Category) (flows []binding.Flow) {
+	flows = []binding.Flow{
+		c.pipeline[ClassifierTable].BuildFlow(priorityNormal).
+			MatchInPort(config.UplinkOFPort).
+			Action().Output(config.BridgeOFPort).
+			Cookie(c.cookieAllocator.Request(category).Raw()).
+			Done(),
+		c.pipeline[ClassifierTable].BuildFlow(priorityNormal).
+			MatchInPort(config.BridgeOFPort).
+			Action().Output(config.UplinkOFPort).
+			Cookie(c.cookieAllocator.Request(category).Raw()).
+			Done(),
+	}
+	if c.encapMode.SupportsNoEncap() {
+		// If NoEncap is enabled, the reply packets from remote Pod can be forwarded to local Pod directly.
+		// by explicitly resubmitting them to serviceHairpinTable and marking "macRewriteMark" at same time.
+		flows = append(flows, c.pipeline[ClassifierTable].BuildFlow(priorityHigh).MatchProtocol(binding.ProtocolIP).
+			MatchInPort(config.UplinkOFPort).
+			MatchDstIPNet(localSubnet).
+			Action().LoadRegRange(int(marksReg), markTrafficFromUplink, binding.Range{0, 15}).
+			Action().LoadRegRange(int(marksReg), macRewriteMark, macRewriteMarkRange).
+			Action().GotoTable(serviceHairpinTable).
+			Cookie(c.cookieAllocator.Request(category).Raw()).
+			Done())
+	}
+	return flows
 }

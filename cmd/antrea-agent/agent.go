@@ -97,6 +97,10 @@ func run(o *Options) error {
 	}
 	defer ovsdbConnection.Close()
 
+	// Enable Flexible-IPAM will set enableBridge to True. Currently only Linux+IPv4 is supported.
+	// Flexible-IPAM works with system OVSDatapathType, noEncap and no Egress SNAT.
+	enableBridge := features.DefaultFeatureGate.Enabled(features.FlexibleIPAM)
+
 	ovsDatapathType := ovsconfig.OVSDatapathType(o.config.OVSDatapathType)
 	ovsBridgeClient := ovsconfig.NewOVSBridge(o.config.OVSBridge, ovsDatapathType, ovsdbConnection)
 	ovsBridgeMgmtAddr := ofconfig.GetMgmtAddress(o.config.OVSRunDir, o.config.OVSBridge)
@@ -104,7 +108,8 @@ func run(o *Options) error {
 		features.DefaultFeatureGate.Enabled(features.AntreaProxy),
 		features.DefaultFeatureGate.Enabled(features.AntreaPolicy),
 		features.DefaultFeatureGate.Enabled(features.Egress),
-		features.DefaultFeatureGate.Enabled(features.FlowExporter))
+		features.DefaultFeatureGate.Enabled(features.FlowExporter),
+		enableBridge)
 
 	_, serviceCIDRNet, _ := net.ParseCIDR(o.config.ServiceCIDR)
 	var serviceCIDRNetv6 *net.IPNet
@@ -151,7 +156,16 @@ func run(o *Options) error {
 		networkConfig,
 		networkReadyCh,
 		stopCh,
-		features.DefaultFeatureGate.Enabled(features.AntreaProxy))
+		features.DefaultFeatureGate.Enabled(features.AntreaProxy),
+		enableBridge)
+	if enableBridge {
+		// Restore network config before shutdown. ovsdbConnection must be alive when restore.
+		defer agentInitializer.RestoreOVSBridge()
+		// remove "flow-restore-wait" config immediately when enableBridge=true to enable Node network.
+		if err := agentInitializer.FlowRestoreComplete(); err != nil {
+			return err
+		}
+	}
 	err = agentInitializer.Initialize()
 	if err != nil {
 		return fmt.Errorf("error initializing agent: %v", err)
@@ -272,8 +286,10 @@ func run(o *Options) error {
 
 	// TODO: we should call this after installing flows for initial node routes
 	//  and initial NetworkPolicies so that no packets will be mishandled.
-	if err := agentInitializer.FlowRestoreComplete(); err != nil {
-		return err
+	if !enableBridge {
+		if err := agentInitializer.FlowRestoreComplete(); err != nil {
+			return err
+		}
 	}
 
 	if err := antreaClientProvider.RunOnce(); err != nil {

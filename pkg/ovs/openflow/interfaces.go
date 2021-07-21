@@ -188,7 +188,7 @@ type Action interface {
 	ResubmitToTable(table TableIDType) FlowBuilder
 	CT(commit bool, tableID TableIDType, zone int) CTAction
 	Drop() FlowBuilder
-	Output(port int) FlowBuilder
+	Output(port uint32) FlowBuilder
 	OutputFieldRange(from string, rng Range) FlowBuilder
 	OutputRegRange(regID int, rng Range) FlowBuilder
 	OutputInPort() FlowBuilder

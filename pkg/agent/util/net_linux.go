@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/containernetworking/plugins/pkg/ip"
@@ -167,13 +168,15 @@ func ConfigureLinkAddresses(idx int, ipNets []*net.IPNet) error {
 	}
 	// Remove link-local address from list
 	addrs := make([]netlink.Addr, 0, len(allAddrs))
+	addrsAll := make([]netlink.Addr, 0, len(allAddrs))
 	for _, addr := range allAddrs {
 		if !addr.IP.IsLinkLocalUnicast() {
 			addrs = append(addrs, addr)
 		}
+		addrsAll = append(addrsAll, addr)
 	}
 
-	addrsToAdd := addrSliceDifference(newAddrs, addrs)
+	addrsToAdd := addrSliceDifference(newAddrs, addrsAll)
 	addrsToRemove := addrSliceDifference(addrs, newAddrs)
 
 	if len(addrsToAdd) == 0 && len(addrsToRemove) == 0 {
@@ -220,4 +223,43 @@ func ListenLocalSocket(address string) (net.Listener, error) {
 // DialLocalSocket connects to a Unix domain socket.
 func DialLocalSocket(address string) (net.Conn, error) {
 	return dialUnix(address)
+}
+
+// SetAdapterMACAddress set specified MAC address on interface.
+func SetAdapterMACAddress(adapterName string, macConfig *net.HardwareAddr) error {
+	link, err := netlink.LinkByName(adapterName)
+	if err != nil {
+		return err
+	}
+	return netlink.LinkSetHardwareAddr(link, *macConfig)
+}
+
+// ConfigureInterfaceAddress adds IPAddress on the specified interface.
+func ConfigureInterfaceAddress(ifaceName string, ipConfig *net.IPNet) error {
+	link, err := netlink.LinkByName(ifaceName)
+	if err != nil {
+		return err
+	}
+	addr, err := netlink.ParseAddr(ipConfig.String())
+	if err != nil {
+		return err
+	}
+	return netlink.AddrAdd(link, addr)
+}
+
+// RemoveInterfaceAddress removes IPAddress on the specified interface.
+func RemoveInterfaceAddress(ifaceName string, ipConfig *net.IPNet) error {
+	link, err := netlink.LinkByName(ifaceName)
+	if err != nil {
+		return err
+	}
+	addr, err := netlink.ParseAddr(ipConfig.String())
+	if err != nil {
+		return err
+	}
+	return netlink.AddrDel(link, addr)
+}
+func DeleteOVSPort(brName, portName string) error {
+	cmd := exec.Command("ovs-vsctl", "--if-exists", "del-port", brName, portName)
+	return cmd.Run()
 }
