@@ -250,8 +250,9 @@ const (
 	CtZone   = 0xfff0
 	CtZoneV6 = 0xffe6
 
-	portFoundMark = 0b1
-	hairpinMark   = 0b1
+	portFoundMark    = 0b1
+	flexibleIPAMMark = 0b1
+	hairpinMark      = 0b1
 	// macRewriteMark indicates the destination and source MACs of the
 	// packet should be rewritten in the l3ForwardingTable.
 	macRewriteMark = 0b1
@@ -307,6 +308,9 @@ var (
 	// ofPortRegRange takes a 32-bit range of register PortCacheReg to cache the ofPort
 	// number of the interface.
 	ofPortRegRange = binding.Range{0, 31}
+	// flexibleIPAMMarkRange takes the 17th bit of register marksReg to indicate
+	// if the packet is sent by a local flexible IPAM Pod.
+	flexibleIPAMMarkRange = binding.Range{17, 17}
 	// hairpinMarkRange takes the 18th bit of register marksReg to indicate
 	// if the packet needs DNAT to virtual IP or not. Its value is 0x1 if yes.
 	hairpinMarkRange = binding.Range{18, 18}
@@ -573,14 +577,36 @@ func (c *client) gatewayClassifierFlow(category cookie.Category) binding.Flow {
 }
 
 // podClassifierFlow generates the flow to mark traffic comes from the podOFPort.
-func (c *client) podClassifierFlow(podOFPort uint32, category cookie.Category) binding.Flow {
+func (c *client) podClassifierFlow(podOFPort uint32, category cookie.Category, isFlexibleIPAM bool) binding.Flow {
 	classifierTable := c.pipeline[ClassifierTable]
-	return classifierTable.BuildFlow(priorityLow).
+	flowBuilder := classifierTable.BuildFlow(priorityLow).
 		MatchInPort(podOFPort).
 		Action().LoadRegRange(int(marksReg), markTrafficFromLocal, binding.Range{0, 15}).
-		Action().GotoTable(classifierTable.GetNext()).
+		Action().GotoTable(classifierTable.GetNext())
+	if isFlexibleIPAM {
+		flowBuilder = flowBuilder.Action().LoadRegRange(int(marksReg), flexibleIPAMMark, flexibleIPAMMarkRange)
+	}
+	return flowBuilder.Cookie(c.cookieAllocator.Request(category).Raw()).Done()
+}
+
+// podUplinkClassifierFlow generates the flows to mark traffic comes from uplink and local port to pod on local host.
+func (c *client) podUplinkClassifierFlows(dstMAC net.HardwareAddr, category cookie.Category) (flows []binding.Flow) {
+	classifierTable := c.pipeline[ClassifierTable]
+	flows = append(flows, classifierTable.BuildFlow(priorityHigh).
+		MatchInPort(config.UplinkOFPort).
+		MatchDstMAC(dstMAC).
+		Action().LoadRegRange(int(marksReg), markTrafficFromUplink, binding.Range{0, 15}).
+		Action().GotoTable(serviceHairpinTable).
 		Cookie(c.cookieAllocator.Request(category).Raw()).
-		Done()
+		Done())
+	flows = append(flows, classifierTable.BuildFlow(priorityHigh).
+		MatchInPort(config.BridgeOFPort).
+		MatchDstMAC(dstMAC).
+		Action().LoadRegRange(int(marksReg), markTrafficFromLocal, binding.Range{0, 15}).
+		Action().GotoTable(serviceHairpinTable).
+		Cookie(c.cookieAllocator.Request(category).Raw()).
+		Done())
+	return
 }
 
 // connectionTrackFlows generates flows that redirect traffic to ct_zone and handle traffic according to ct_state:
@@ -1103,15 +1129,19 @@ func (c *client) l3FwdFlowToPod(localGatewayMAC net.HardwareAddr, podInterfaceIP
 	var flows []binding.Flow
 	for _, ip := range podInterfaceIPs {
 		ipProtocol := getIPProtocol(ip)
-		flows = append(flows, l3FwdTable.BuildFlow(priorityNormal).MatchProtocol(ipProtocol).
-			MatchRegRange(int(marksReg), macRewriteMark, macRewriteMarkRange).
-			MatchDstIP(ip).
+		flowBuilder := l3FwdTable.BuildFlow(priorityNormal).MatchProtocol(ipProtocol)
+		if !c.enableBridge {
+			// dstMAC will be overwritten always when enableBridge is true
+			flowBuilder = flowBuilder.MatchRegRange(int(marksReg), macRewriteMark, macRewriteMarkRange)
+		}
+		flow := flowBuilder.MatchDstIP(ip).
 			Action().SetSrcMAC(localGatewayMAC).
 			// Rewrite src MAC to local gateway MAC, and rewrite dst MAC to pod MAC
 			Action().SetDstMAC(podInterfaceMAC).
 			Action().GotoTable(l3DecTTLTable).
 			Cookie(c.cookieAllocator.Request(category).Raw()).
-			Done())
+			Done()
+		flows = append(flows, flow)
 	}
 	return flows
 }
@@ -2246,6 +2276,7 @@ func (sl conjunctiveActionsInOrder) Less(i, j int) bool {
 // hostBridgeUplinkFlows generates the flows that forward traffic between the
 // bridge local port and the uplink port to support the host traffic with
 // outside.
+// TODO(gran): sync latest changes from pipeline_windows.go
 func (c *client) hostBridgeUplinkFlows(localSubnet net.IPNet, category cookie.Category) (flows []binding.Flow) {
 	flows = []binding.Flow{
 		c.pipeline[ClassifierTable].BuildFlow(priorityNormal).
@@ -2259,17 +2290,26 @@ func (c *client) hostBridgeUplinkFlows(localSubnet net.IPNet, category cookie.Ca
 			Cookie(c.cookieAllocator.Request(category).Raw()).
 			Done(),
 	}
-	if c.encapMode.SupportsNoEncap() {
-		// If NoEncap is enabled, the reply packets from remote Pod can be forwarded to local Pod directly.
-		// by explicitly resubmitting them to serviceHairpinTable and marking "macRewriteMark" at same time.
-		flows = append(flows, c.pipeline[ClassifierTable].BuildFlow(priorityHigh).MatchProtocol(binding.ProtocolIP).
+	flows = append(flows,
+		c.pipeline[ClassifierTable].BuildFlow(priorityHigh).
 			MatchInPort(config.UplinkOFPort).
-			MatchDstIPNet(localSubnet).
-			Action().LoadRegRange(int(marksReg), markTrafficFromUplink, binding.Range{0, 15}).
-			Action().LoadRegRange(int(marksReg), macRewriteMark, macRewriteMarkRange).
-			Action().GotoTable(serviceHairpinTable).
+			MatchProtocol(binding.ProtocolARP).
+			Action().Normal().
+			Cookie(c.cookieAllocator.Request(category).Raw()).
+			Done(),
+		c.pipeline[ClassifierTable].BuildFlow(priorityHigh).
+			MatchInPort(config.BridgeOFPort).
+			MatchProtocol(binding.ProtocolARP).
+			Action().Normal().
+			Cookie(c.cookieAllocator.Request(category).Raw()).
+			Done(),
+		c.pipeline[l2ForwardingCalcTable].BuildFlow(priorityLow).
+			MatchRegRange(int(marksReg), flexibleIPAMMark, flexibleIPAMMarkRange).
+			Action().LoadRegRange(int(PortCacheReg), config.UplinkOFPort, ofPortRegRange).
+			Action().LoadRegRange(int(marksReg), portFoundMark, ofPortMarkRange).
+			Action().GotoTable(conntrackCommitTable).
 			Cookie(c.cookieAllocator.Request(category).Raw()).
 			Done())
-	}
+
 	return flows
 }

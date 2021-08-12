@@ -433,6 +433,58 @@ func (s *CNIServer) CmdAdd(ctx context.Context, request *cnipb.CniCmdRequest) (*
 			return s.ipamFailureResponse(err), nil
 		}
 	}
+	// TODO(gran): remove this
+	switch string(cniConfig.K8S_POD_NAME) {
+	case "ubuntu-sts-0":
+		ipamResult.IPs[0] = &current.IPConfig{
+			Version:   "4",
+			Interface: nil,
+			Address: net.IPNet{
+				IP:   net.ParseIP("192.168.88.90"),
+				Mask: net.IPv4Mask(255, 255, 255, 0),
+			},
+			Gateway: net.ParseIP("192.168.88.1"),
+		}
+	case "ubuntu-sts-1":
+		ipamResult.IPs[0] = &current.IPConfig{
+			Version:   "4",
+			Interface: nil,
+			Address: net.IPNet{
+				IP:   net.ParseIP("192.168.88.91"),
+				Mask: net.IPv4Mask(255, 255, 255, 0),
+			},
+			Gateway: net.ParseIP("192.168.88.1"),
+		}
+	case "ubuntu-sts-2":
+		ipamResult.IPs[0] = &current.IPConfig{
+			Version:   "4",
+			Interface: nil,
+			Address: net.IPNet{
+				IP:   net.ParseIP("192.168.88.92"),
+				Mask: net.IPv4Mask(255, 255, 255, 0),
+			},
+			Gateway: net.ParseIP("192.168.88.1"),
+		}
+	case "ubuntu-sts-3":
+		ipamResult.IPs[0] = &current.IPConfig{
+			Version:   "4",
+			Interface: nil,
+			Address: net.IPNet{
+				IP:   net.ParseIP("192.168.88.93"),
+				Mask: net.IPv4Mask(255, 255, 255, 0),
+			},
+			Gateway: net.ParseIP("192.168.88.1"),
+		}
+	}
+	if len(ipamResult.IPs) == 1 && ipamResult.IPs[0].Gateway.Equal(net.ParseIP("192.168.88.1")) {
+		ipamResult.Routes = append(ipamResult.Routes, &cnitypes.Route{
+			Dst: net.IPNet{
+				IP:   net.ParseIP("0.0.0.0"),
+				Mask: net.IPv4Mask(0, 0, 0, 0),
+			},
+			GW: net.ParseIP("192.168.88.1"),
+		})
+	}
 	klog.Infof("Requested ip addresses for container %v: %v", cniConfig.ContainerId, ipamResult)
 	result.IPs = ipamResult.IPs
 	result.Routes = ipamResult.Routes

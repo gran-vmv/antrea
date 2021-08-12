@@ -439,14 +439,17 @@ func (c *client) InstallPodFlows(interfaceName string, podInterfaceIPs []net.IP,
 	c.replayMutex.RLock()
 	defer c.replayMutex.RUnlock()
 
+	podInterfaceIPv4 := util.GetIPv4Addr(podInterfaceIPs)
+	// TODO(gran): support IPv6
+	isFlexibleIPAM := c.enableBridge && c.nodeConfig.PodIPv4CIDR != nil && !c.nodeConfig.PodIPv4CIDR.Contains(podInterfaceIPv4)
+
 	localGatewayMAC := c.nodeConfig.GatewayConfig.MAC
 	flows := []binding.Flow{
-		c.podClassifierFlow(ofPort, cookie.Pod),
+		c.podClassifierFlow(ofPort, cookie.Pod, isFlexibleIPAM),
 		c.l2ForwardCalcFlow(podInterfaceMAC, ofPort, false, cookie.Pod),
 	}
 
 	// Add support for IPv4 ARP responder.
-	podInterfaceIPv4 := util.GetIPv4Addr(podInterfaceIPs)
 	if podInterfaceIPv4 != nil {
 		flows = append(flows, c.arpSpoofGuardFlow(podInterfaceIPv4, podInterfaceMAC, ofPort, cookie.Pod))
 	}
@@ -461,6 +464,12 @@ func (c *client) InstallPodFlows(interfaceName string, podInterfaceIPs []net.IP,
 			c.l3FwdFlowRouteToPod(podInterfaceIPs, podInterfaceMAC, cookie.Pod)...,
 		)
 	}
+
+	if isFlexibleIPAM {
+		// Add Pod uplink classifier flows for flexible-IPAM Pods.
+		flows = append(flows, c.podUplinkClassifierFlows(podInterfaceMAC, cookie.Pod)...)
+	}
+
 	return c.addFlows(c.podFlowCache, interfaceName, flows)
 }
 
