@@ -262,10 +262,6 @@ var DispositionToString = map[uint32]string{
 }
 
 var (
-	// traceflowTagToSRange stores Traceflow dataplane tag to DSCP bits of
-	// IP header ToS field.
-	traceflowTagToSRange = binding.IPDSCPToSRange
-
 	// snatPktMarkRange takes an 8-bit range of pkt_mark to store the ID of
 	// a SNAT IP. The bit range must match SNATIPMarkMask.
 	snatPktMarkRange = &binding.Range{0, 7}

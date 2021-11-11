@@ -162,7 +162,12 @@ func (c *Controller) parsePacketIn(pktIn *ofctrl.PacketIn) (*crdv1alpha1.Tracefl
 
 	// Collect Service DNAT and SNAT.
 	if !tfState.receiverOnly {
-		if isValidCtNw(ctNwDst) && ipDst != ctNwDst {
+		// ctNwDst is same as ipDst in Windows, use originalIPDst as an alternative.
+		originalIPDst := ""
+		if tfState.packet != nil {
+			originalIPDst = tfState.packet.DestinationIP.String()
+		}
+		if isValidCtNw(ctNwDst) && ipDst != ctNwDst || (originalIPDst != "" && originalIPDst != ipDst) {
 			ob := &crdv1alpha1.Observation{
 				Component:       crdv1alpha1.ComponentLB,
 				Action:          crdv1alpha1.ActionForwarded,

@@ -1018,9 +1018,15 @@ func (c *client) SendTraceflowPacket(dataplaneTag uint8, packet *binding.Packet,
 	if outPort != -1 {
 		packetOutBuilder = packetOutBuilder.SetOutport(uint32(outPort))
 	}
-	packetOutBuilder = packetOutBuilder.AddLoadAction(binding.NxmFieldIPToS, uint64(dataplaneTag), traceflowTagToSRange)
 
 	packetOutObj := packetOutBuilder.Done()
+	// Set nw_tos value directly instead of AddLoadAction to avoid issue under Windows OVS.
+	if packet.IsIPv6 {
+		packetOutObj.IPv6Header.TrafficClass = dataplaneTag << 2
+	} else {
+		packetOutObj.IPHeader.DSCP = dataplaneTag
+	}
+
 	return c.bridge.SendPacketOut(packetOutObj)
 }
 

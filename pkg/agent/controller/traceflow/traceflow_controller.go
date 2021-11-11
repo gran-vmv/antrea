@@ -81,6 +81,8 @@ type traceflowState struct {
 	isSender     bool
 	// Agent received the first Traceflow packet from OVS.
 	receivedPacket bool
+	// Expected packet to send
+	packet *binding.Packet
 }
 
 // Controller is responsible for setting up Openflow entries and injecting traceflow packet into
@@ -345,7 +347,7 @@ func (c *Controller) startTraceflow(tf *crdv1alpha1.Traceflow) error {
 	tfState := traceflowState{
 		name: tf.Name, tag: tf.Status.DataplaneTag,
 		liveTraffic: liveTraffic, droppedOnly: tf.Spec.DroppedOnly && liveTraffic,
-		receiverOnly: receiverOnly, isSender: isSender}
+		receiverOnly: receiverOnly, isSender: isSender, packet: packet}
 	c.runningTraceflows[tfState.tag] = &tfState
 	c.runningTraceflowsMutex.Unlock()
 
