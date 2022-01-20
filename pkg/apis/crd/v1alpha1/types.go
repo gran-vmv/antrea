@@ -95,7 +95,7 @@ const (
 )
 
 // Default timeout in seconds.
-const DefaultTraceflowTimeout uint16 = 20
+const DefaultTraceflowTimeout uint16 = 30
 
 // +genclient
 // +genclient:nonNamespaced

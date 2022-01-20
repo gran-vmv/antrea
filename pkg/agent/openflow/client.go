@@ -1033,6 +1033,8 @@ func (c *client) SendTraceflowPacket(dataplaneTag uint8, packet *binding.Packet,
 func (c *client) InstallTraceflowFlows(dataplaneTag uint8, liveTraffic, droppedOnly, receiverOnly bool, packet *binding.Packet, ofPort uint32, timeoutSeconds uint16) error {
 	cacheKey := fmt.Sprintf("%x", dataplaneTag)
 	flows := []binding.Flow{}
+	// TODO (gran)
+	flows = append(flows, c.traceflowTunnelClassifierFlows(dataplaneTag, timeoutSeconds, receiverOnly, packet, ofPort, config.DefaultTunOFPort, cookie.Default)...)
 	flows = append(flows, c.traceflowConnectionTrackFlows(dataplaneTag, receiverOnly, packet, ofPort, timeoutSeconds, cookie.Default)...)
 	flows = append(flows, c.traceflowL2ForwardOutputFlows(dataplaneTag, liveTraffic, droppedOnly, timeoutSeconds, cookie.Default)...)
 	flows = append(flows, c.traceflowNetworkPolicyFlows(dataplaneTag, timeoutSeconds, cookie.Default)...)

@@ -16,6 +16,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"reflect"
@@ -281,7 +282,7 @@ func testTraceflowIntraNodeANP(t *testing.T, data *TestData) {
 		for _, tc := range testcases {
 			tc := tc
 			t.Run(tc.name, func(t *testing.T) {
-				t.Parallel()
+				//t.Parallel()
 				runTestTraceflow(t, data, tc)
 			})
 		}
@@ -1098,7 +1099,7 @@ func testTraceflowIntraNode(t *testing.T, data *TestData) {
 		for _, tc := range testcases {
 			tc := tc
 			t.Run(tc.name, func(t *testing.T) {
-				t.Parallel()
+				//t.Parallel()
 				runTestTraceflow(t, data, tc)
 			})
 		}
@@ -2061,9 +2062,32 @@ func (data *TestData) waitForTraceflow(t *testing.T, name string, phase v1alpha1
 		if tf != nil {
 			t.Errorf("Latest Traceflow status: %v", tf.Status)
 		}
+		debugLog(t, data, tf)
 		return nil, err
 	}
 	return tf, nil
+}
+
+func debugLog(t *testing.T, data *TestData, tf *v1alpha1.Traceflow) {
+	rc, stdout, stderr, err2 := RunCommandOnNode(controlPlaneNodeName(), "kubectl get po -A -owide")
+	t.Logf("Pods: %d, %s, %s, %+v", rc, stdout, stderr, err2)
+	podName, _ := data.getAntreaPodOnNode(controlPlaneNodeName())
+	stdout, stderr, err2 = data.runCommandFromPod(antreaNamespace, podName, "antrea-agent", []string{"ovs-ofctl", "-O", "OpenFlow13", "dump-flows", "br-int"})
+	t.Logf("Master flow: %s, %s, %+v", stdout, stderr, err2)
+	if len(clusterInfo.windowsNodes) != 0 {
+		nodeIdx0 := clusterInfo.windowsNodes[0]
+		rc, stdout, stderr, err2 = RunCommandOnNode(nodeName(nodeIdx0), "ovs-ofctl -O OpenFlow13 dump-flows br-int")
+		t.Logf("Windows0 flow: %d, %s, %s, %+v", rc, stdout, stderr, err2)
+		nodeIdx1 := clusterInfo.windowsNodes[1]
+		rc, stdout, stderr, err2 = RunCommandOnNode(nodeName(nodeIdx1), "ovs-ofctl -O OpenFlow13 dump-flows br-int")
+		t.Logf("Windows1 flow: %d, %s, %s, %+v", rc, stdout, stderr, err2)
+		reasonMap := map[string]string{}
+		json.Unmarshal([]byte(tf.Status.Reason), &reasonMap)
+		cmd := fmt.Sprintf("ovs-appctl ofproto/trace br-int in_port=%s,%s,nw_ttl=64,dl_src=%s,dl_dst=%s,nw_src=%s,nw_dst=%s,nw_tos=%s", reasonMap["in_port"], reasonMap["proto"], reasonMap["dl_src"], reasonMap["dl_dst"], reasonMap["nw_src"], reasonMap["nw_dst"], reasonMap["nw_tos"])
+		t.Logf("cmd: %s", cmd)
+		rc, stdout, stderr, err2 = RunCommandOnNode(nodeName(nodeIdx0), cmd)
+		t.Logf("Windows0 trace: %d, %s, %s, %+v", rc, stdout, stderr, err2)
+	}
 }
 
 // compareObservations compares expected results and actual results.
@@ -2232,21 +2256,26 @@ func runTestTraceflow(t *testing.T, data *TestData, tc testcase) {
 	}
 	if len(tc.expectedResults) == 1 {
 		if err = compareObservations(tc.expectedResults[0], tf.Status.Results[0]); err != nil {
+			debugLog(t, data, tf)
 			t.Fatal(err)
 		}
 	} else if len(tc.expectedResults) > 0 {
 		if tf.Status.Results[0].Observations[0].Component == v1alpha1.ComponentSpoofGuard {
 			if err = compareObservations(tc.expectedResults[0], tf.Status.Results[0]); err != nil {
+				debugLog(t, data, tf)
 				t.Fatal(err)
 			}
 			if err = compareObservations(tc.expectedResults[1], tf.Status.Results[1]); err != nil {
+				debugLog(t, data, tf)
 				t.Fatal(err)
 			}
 		} else {
 			if err = compareObservations(tc.expectedResults[0], tf.Status.Results[1]); err != nil {
+				debugLog(t, data, tf)
 				t.Fatal(err)
 			}
 			if err = compareObservations(tc.expectedResults[1], tf.Status.Results[0]); err != nil {
+				debugLog(t, data, tf)
 				t.Fatal(err)
 			}
 		}

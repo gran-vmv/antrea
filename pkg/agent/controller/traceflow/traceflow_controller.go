@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -340,6 +341,7 @@ func (c *Controller) startTraceflow(tf *crdv1alpha1.Traceflow) error {
 			matchPacket = packet
 		}
 		klog.V(2).Infof("Traceflow packet %v", *packet)
+		klog.Infof("AAAA Traceflow packet %+v", *packet)
 	}
 
 	// Store Traceflow to cache.
@@ -375,7 +377,25 @@ func (c *Controller) startTraceflow(tf *crdv1alpha1.Traceflow) error {
 			time.Sleep(time.Duration(injectLocalPacketDelay) * time.Millisecond)
 		}
 		klog.V(2).Infof("Injecting packet for Traceflow %s", tf.Name)
+		klog.Infof("AAAA Injecting packet for Traceflow %s", tf.Name)
 		err = c.ofClient.SendTraceflowPacket(tfState.tag, packet, ofPort, -1)
+	}
+	if isSender && len(podInterfaces) > 0 {
+		type Traceflow struct {
+			Status crdv1alpha1.TraceflowStatus `json:"status,omitempty"`
+		}
+		proto := "icmp"
+		switch tf.Spec.Packet.IPHeader.Protocol {
+		case 6:
+			proto = fmt.Sprintf("tcp,tcp_src=%d,tcp_dst=%d", tf.Spec.Packet.TransportHeader.TCP.SrcPort, tf.Spec.Packet.TransportHeader.TCP.DstPort)
+		case 17:
+			proto = fmt.Sprintf("udp,udp_src=%d,udp_dst=%d", tf.Spec.Packet.TransportHeader.UDP.SrcPort, tf.Spec.Packet.TransportHeader.UDP.DstPort)
+		}
+		reasonMap := map[string]string{"in_port": strconv.Itoa(int(ofPort)), "dl_src": podInterfaces[0].MAC.String(), "dl_dst": c.nodeConfig.GatewayConfig.MAC.String(), "nw_src": podInterfaces[0].GetIPv4Addr().String(), "nw_dst": packet.DestinationIP.String(), "nw_tos": strconv.Itoa(int(tfState.tag << 2)), "proto": proto}
+		reason, _ := json.Marshal(reasonMap)
+		patchData := Traceflow{Status: crdv1alpha1.TraceflowStatus{Reason: string(reason)}}
+		payloads, _ := json.Marshal(patchData)
+		c.traceflowClient.CrdV1alpha1().Traceflows().Patch(context.TODO(), tf.Name, types.MergePatchType, payloads, metav1.PatchOptions{}, "status")
 	}
 	return err
 }

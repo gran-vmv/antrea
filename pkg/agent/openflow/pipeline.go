@@ -756,6 +756,29 @@ func (c *client) kubeProxyFlows(category cookie.Category) []binding.Flow {
 	return flows
 }
 
+// TODO (gran)
+// traceflowTunnelClassifierFlow generates the flow to mark traffic comes from the tunnelOFPort.
+func (c *client) traceflowTunnelClassifierFlows(dataplaneTag uint8, timeout uint16, receiverOnly bool, packet *binding.Packet, ofPort, tunnelOFPort uint32, category cookie.Category) []binding.Flow {
+	var flows []binding.Flow
+	nextTable := ConntrackTable
+	if c.proxyAll {
+		nextTable = ServiceConntrackTable
+	}
+	for _, ipProtocol := range c.ipProtocols {
+		flows = append(flows, ClassifierTable.BuildFlow(priorityNormal+2).
+			SetHardTimeout(timeout).
+			MatchProtocol(ipProtocol).
+			MatchIPDSCP(dataplaneTag).
+			MatchInPort(tunnelOFPort).
+			Action().LoadRegMark(FromTunnelRegMark).
+			Action().LoadRegMark(RewriteMACRegMark).
+			Action().GotoTable(nextTable.GetID()).
+			Cookie(c.cookieAllocator.Request(category).Raw()).
+			Done())
+	}
+	return flows
+}
+
 // TODO: Use DuplicateToBuilder or integrate this function into original one to avoid unexpected
 // difference.
 // traceflowConnectionTrackFlows generates Traceflow specific flows in the

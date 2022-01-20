@@ -1755,6 +1755,8 @@ func (data *TestData) runPingCommandFromTestPod(podInfo podInfo, ns string, targ
 		cmdV4 := append(cmd, "-4", targetPodIPs.ipv4.String())
 		if stdout, stderr, err := data.runCommandFromPod(ns, podInfo.name, ctrName, cmdV4); err != nil {
 			return fmt.Errorf("error when running ping command '%s': %v - stdout: %s - stderr: %s", strings.Join(cmdV4, " "), err, stdout, stderr)
+		} else {
+			log.Printf("AAAA stdout: %s stderr: %s", stdout, stderr)
 		}
 	}
 	if targetPodIPs.ipv6 != nil {
