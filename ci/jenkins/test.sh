@@ -329,22 +329,22 @@ function deliver_antrea_windows {
     sed -i 's/if (!(Test-Path $AntreaAgentConfigPath))/if ($true)/' hack/windows/Helper.psm1
     kubectl get nodes -o wide --no-headers=true | awk -v role="$CONTROL_PLANE_NODE_ROLE" '$3 != role && $1 ~ /win/ {print $1}' | while read WORKER_NAME; do
         echo "==== Reverting Windows VM ${WORKER_NAME} ====="
-        govc snapshot.revert -vm ${WORKER_NAME} win-initial
-        # If Windows VM fails to power on correctly in time, retry several times.
-        winVMIPs=""
-        for i in `seq 3`; do
-            winVMIPs=$(govc vm.ip -wait=1m -a ${WORKER_NAME})
-            if [[ $winVMIPs != "" ]]; then
-                echo "Windows VM ${WORKER_NAME} powered on"
-                break
-            fi
-            echo "Windows VM ${WORKER_NAME} failed to power on"
-            govc vm.power -on ${WORKER_NAME} || true
-        done
-        if [[ $winVMIPs == "" ]]; then
-            echo "Windows VM ${WORKER_NAME} didn't power on after 3 tries, exiting"
-            exit 1
-        fi
+#        govc snapshot.revert -vm ${WORKER_NAME} win-initial
+#        # If Windows VM fails to power on correctly in time, retry several times.
+#        winVMIPs=""
+#        for i in `seq 3`; do
+#            winVMIPs=$(govc vm.ip -wait=1m -a ${WORKER_NAME})
+#            if [[ $winVMIPs != "" ]]; then
+#                echo "Windows VM ${WORKER_NAME} powered on"
+#                break
+#            fi
+#            echo "Windows VM ${WORKER_NAME} failed to power on"
+#            govc vm.power -on ${WORKER_NAME} || true
+#        done
+#        if [[ $winVMIPs == "" ]]; then
+#            echo "Windows VM ${WORKER_NAME} didn't power on after 3 tries, exiting"
+#            exit 1
+#        fi
         IP=$(kubectl get node "${WORKER_NAME}" -o jsonpath='{.status.addresses[0].address}')
         # Windows VM is reverted to an old snapshot so computer date needs updating.
         for i in `seq 24`; do
@@ -685,7 +685,7 @@ if [[ ${TESTCASE} == "windows-install-ovs" ]]; then
     exit 0
 fi
 
-trap clean_antrea EXIT
+#trap clean_antrea EXIT
 if [[ ${TESTCASE} =~ "windows" ]]; then
     deliver_antrea_windows
     if [[ ${TESTCASE} =~ "e2e" ]]; then
