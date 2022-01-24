@@ -91,6 +91,8 @@ var (
 	TargetOFPortField = binding.NewRegField(1, 0, 31, "TargetOFPort")
 	// OutputToBridgeRegMark marks that the output interface is OVS bridge.
 	OutputToBridgeRegMark = binding.NewRegMark(TargetOFPortField, config.BridgeOFPort)
+	// OutputToUplinkRegMark marks that the output interface is uplink.
+	OutputToUplinkRegMark = binding.NewRegMark(TargetOFPortField, config.UplinkOFPort)
 
 	// reg2(NXM_NX_REG2)
 	// Field to help swap values in two different flow fields in the OpenFlow actions. This field is only used in func
@@ -140,6 +142,16 @@ var (
 	// reg7(NXM_NX_REG7)
 	// Field to store the GroupID corresponding to the Service.
 	ServiceGroupIDField = binding.NewRegField(7, 0, 31, "ServiceGroupID")
+
+	// reg8(NXM_NX_REG8)
+	// Field to store the VLAN ID.
+	VLANIDField = binding.NewRegField(8, 0, 11, "VLANID")
+	// Field to store the CtZone type.
+	CtZoneTypeField       = binding.NewRegField(8, 12, 15, "CtZoneType")
+	IPCtZoneTypeRegMark   = binding.NewRegMark(CtZoneTypeField, 0b0001)
+	IPv6CtZoneTypeRegMark = binding.NewRegMark(CtZoneTypeField, 0b0011)
+	// Field to store the CtZone ID, which is a combination of VLANIDField and CtZoneTypeField
+	CtZoneField = binding.NewRegField(8, 0, 15, "CtZoneID")
 )
 
 // Fields using xxreg.

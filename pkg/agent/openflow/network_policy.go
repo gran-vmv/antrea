@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 
+	"antrea.io/libOpenflow/openflow13"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
@@ -1734,6 +1735,9 @@ type featureNetworkPolicy struct {
 	ovsMetersAreSupported bool
 	enableDenyTracking    bool
 	enableAntreaPolicy    bool
+	connectUplinkToBridge bool
+	ctZoneSrcFieldName    string
+	ctZoneSrcRange        *openflow13.NXRange
 	// deterministic represents whether to generate flows deterministically.
 	// For example, if a flow has multiple actions, setting it to true can get consistent flow.
 	// Enabling it may carry a performance impact. It's disabled by default and should only be used in testing.
@@ -1752,7 +1756,8 @@ func newFeatureNetworkPolicy(
 	bridge binding.Bridge,
 	ovsMetersAreSupported,
 	enableDenyTracking,
-	enableAntreaPolicy bool) *featureNetworkPolicy {
+	enableAntreaPolicy bool,
+	connectUplinkToBridge bool) *featureNetworkPolicy {
 	return &featureNetworkPolicy{
 		cookieAllocator:          cookieAllocator,
 		ipProtocols:              ipProtocols,
@@ -1763,6 +1768,9 @@ func newFeatureNetworkPolicy(
 		enableDenyTracking:       enableDenyTracking,
 		enableAntreaPolicy:       enableAntreaPolicy,
 		category:                 cookie.NetworkPolicy,
+		connectUplinkToBridge:    connectUplinkToBridge,
+		ctZoneSrcFieldName:       getZoneSrcFieldName(connectUplinkToBridge),
+		ctZoneSrcRange:           getZoneSrcRange(connectUplinkToBridge),
 	}
 }
 

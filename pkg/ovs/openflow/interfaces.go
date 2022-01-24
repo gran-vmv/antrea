@@ -18,6 +18,7 @@ import (
 	"net"
 	"time"
 
+	"antrea.io/libOpenflow/openflow13"
 	"antrea.io/libOpenflow/util"
 	"antrea.io/ofnet/ofctrl"
 )
@@ -76,6 +77,8 @@ const (
 	NxmFieldDstIPv4     = "NXM_OF_IP_DST"
 	NxmFieldSrcIPv6     = "NXM_NX_IPV6_SRC"
 	NxmFieldDstIPv6     = "NXM_NX_IPV6_DST"
+
+	OxmFieldVLANVID = "OXM_OF_VLAN_VID"
 )
 
 const (
@@ -209,7 +212,7 @@ type Action interface {
 	MoveRange(fromName, toName string, from, to Range) FlowBuilder
 	Resubmit(port uint16, table uint8) FlowBuilder
 	ResubmitToTables(tables ...uint8) FlowBuilder
-	CT(commit bool, tableID uint8, zone int) CTAction
+	CT(commit bool, tableID uint8, zone int, zoneSrcFieldName string, zoneSrcRange *openflow13.NXRange) CTAction
 	Drop() FlowBuilder
 	Output(port uint32) FlowBuilder
 	OutputFieldRange(from string, rng *Range) FlowBuilder
@@ -224,6 +227,9 @@ type Action interface {
 	SetSrcIP(addr net.IP) FlowBuilder
 	SetDstIP(addr net.IP) FlowBuilder
 	SetTunnelDst(addr net.IP) FlowBuilder
+	PopVLAN() FlowBuilder
+	PushVLAN(etherType uint16) FlowBuilder
+	SetVLAN(vlanID uint16) FlowBuilder
 	DecTTL() FlowBuilder
 	Normal() FlowBuilder
 	Conjunction(conjID uint32, clauseID uint8, nClause uint8) FlowBuilder
@@ -275,6 +281,7 @@ type FlowBuilder interface {
 	MatchICMPv6Code(icmp6Code byte) FlowBuilder
 	MatchTunnelDst(dstIP net.IP) FlowBuilder
 	MatchTunMetadata(index int, data uint32) FlowBuilder
+	MatchVLAN(nonVLAN bool, vlanId uint16, vlanMask *uint16) FlowBuilder
 	// MatchCTSrcIP matches the source IPv4 address of the connection tracker original direction tuple.
 	MatchCTSrcIP(ip net.IP) FlowBuilder
 	// MatchCTSrcIPNet matches the source IPv4 address of the connection tracker original direction tuple with IP masking.
@@ -404,10 +411,12 @@ type PacketOutBuilder interface {
 }
 
 type ctBase struct {
-	commit  bool
-	force   bool
-	ctTable uint8
-	ctZone  uint16
+	commit             bool
+	force              bool
+	ctTable            uint8
+	ctZone             uint16
+	ctZoneSrcFieldName string
+	ctZoneSrcRange     *openflow13.NXRange
 }
 
 type IPRange struct {

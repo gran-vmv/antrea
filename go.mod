@@ -3,8 +3,8 @@ module antrea.io/antrea
 go 1.17
 
 require (
-	antrea.io/libOpenflow v0.6.1
-	antrea.io/ofnet v0.2.3
+	antrea.io/libOpenflow v0.6.2
+	antrea.io/ofnet v0.5.1
 	github.com/Mellanox/sriovnet v1.0.2
 	github.com/Microsoft/go-winio v0.4.16-0.20201130162521-d1ffc52c7331
 	github.com/Microsoft/hcsshim v0.8.9
@@ -174,3 +174,5 @@ require (
 // Newer version of github.com/googleapis/gnostic make use of newer gopkg.in/yaml(v3), which conflicts with
 // explicit imports of gopkg.in/yaml.v2.
 replace github.com/googleapis/gnostic v0.5.5 => github.com/googleapis/gnostic v0.4.1
+
+replace antrea.io/ofnet v0.5.1 => github.com/gran-vmv/ofnet v0.0.0-20220304070820-1d3abf116796

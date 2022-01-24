@@ -135,6 +135,7 @@ func (c *AntreaIPAMController) getIPPoolsByPod(namespace, name string) ([]string
 		ipPools, _ := c.ipPoolInformer.Informer().GetIndexer().ByIndex(podIndex, k8s.NamespacedName(namespace, name))
 		for _, item := range ipPools {
 			ipPool := item.(*crdv1a2.IPPool)
+			klog.V(2).InfoS("Found", "IPPool", ipPool)
 			if ipPool.Spec.IPVersion != 4 {
 				continue
 			}

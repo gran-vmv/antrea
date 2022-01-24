@@ -40,7 +40,9 @@ func TestCopyToBuilder(t *testing.T) {
 		Action().CT(
 		true,
 		t1,
-		0x1234).
+		0x1234,
+		"",
+		nil).
 		LoadToCtMark(mark).
 		MoveToLabel(NxmFieldSrcMAC, &Range{0, 47}, &Range{0, 47}).CTDone().
 		Done()

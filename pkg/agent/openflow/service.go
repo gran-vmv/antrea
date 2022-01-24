@@ -18,6 +18,7 @@ import (
 	"net"
 	"sync"
 
+	"antrea.io/libOpenflow/openflow13"
 	"k8s.io/klog/v2"
 
 	"antrea.io/antrea/pkg/agent/config"
@@ -43,6 +44,8 @@ type featureService struct {
 	enableProxy           bool
 	proxyAll              bool
 	connectUplinkToBridge bool
+	ctZoneSrcFieldName    string
+	ctZoneSrcRange        *openflow13.NXRange
 
 	category cookie.Category
 }
@@ -91,6 +94,8 @@ func newFeatureService(
 		enableProxy:           enableProxy,
 		proxyAll:              proxyAll,
 		connectUplinkToBridge: connectUplinkToBridge,
+		ctZoneSrcFieldName:    getZoneSrcFieldName(connectUplinkToBridge),
+		ctZoneSrcRange:        getZoneSrcRange(connectUplinkToBridge),
 		category:              cookie.Service,
 	}
 }

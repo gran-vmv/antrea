@@ -17,6 +17,8 @@ package openflow
 import (
 	"net"
 
+	"antrea.io/libOpenflow/openflow13"
+
 	"antrea.io/antrea/pkg/agent/config"
 	"antrea.io/antrea/pkg/agent/openflow/cookie"
 	binding "antrea.io/antrea/pkg/ovs/openflow"
@@ -38,6 +40,8 @@ type featurePodConnectivity struct {
 	networkConfig *config.NetworkConfig
 
 	connectUplinkToBridge bool
+	ctZoneSrcFieldName    string
+	ctZoneSrcRange        *openflow13.NXRange
 	enableMulticast       bool
 
 	category cookie.Category
@@ -84,6 +88,8 @@ func newFeaturePodConnectivity(
 		nodeConfig:            nodeConfig,
 		networkConfig:         networkConfig,
 		connectUplinkToBridge: connectUplinkToBridge,
+		ctZoneSrcFieldName:    getZoneSrcFieldName(connectUplinkToBridge),
+		ctZoneSrcRange:        getZoneSrcRange(connectUplinkToBridge),
 		enableMulticast:       enableMulticast,
 		category:              cookie.PodConnectivity,
 	}
