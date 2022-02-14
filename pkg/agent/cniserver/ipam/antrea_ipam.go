@@ -103,7 +103,7 @@ func (d *AntreaIPAM) setController(controller *AntreaIPAMController) {
 // Add allocates next available IP address from associated IP Pool
 // Allocated IP and associated resource are stored in IP Pool status
 func (d *AntreaIPAM) Add(args *invoke.Args, k8sArgs *argtypes.K8sArgs, networkConfig []byte) (bool, *current.Result, error) {
-	mine, allocator, ips, reservedOwner, err := d.owns(k8sArgs)
+	mine, allocator, ips, reservedOwner, err := d.owns(k8sArgs, nil)
 	if err != nil {
 		return mine, nil, err
 	}
@@ -152,23 +152,25 @@ func (d *AntreaIPAM) Del(args *invoke.Args, k8sArgs *argtypes.K8sArgs, networkCo
 		return err
 	}
 
-	mine, allocator, _, _, err := d.owns(k8sArgs)
+	// When AntreaIPAM.owns() is called for a NodeIPAM Pod, the IPPool cannot be found for the Pod. We pass
+	// swallowNotFoundError to the call to sallow the "NotFound" error.
+	mine, allocator, _, _, err := d.owns(k8sArgs, swallowNotFoundError)
 	if !mine {
 		// pass this request to next driver
 		return false, nil
 	}
 	if err != nil {
-		return true, swallowNotFoundError(err)
+		return true, err
 	}
 
 	owner := getAllocationOwner(args, k8sArgs, nil)
 	err = allocator.ReleaseContainerIfPresent(owner.Pod.ContainerID)
-	return true, swallowNotFoundError(err)
+	return true, err
 }
 
 // Check verifues IP associated with resource is tracked in IP Pool status
 func (d *AntreaIPAM) Check(args *invoke.Args, k8sArgs *argtypes.K8sArgs, networkConfig []byte) (bool, error) {
-	mine, allocator, _, _, err := d.owns(k8sArgs)
+	mine, allocator, _, _, err := d.owns(k8sArgs, nil)
 	if err != nil {
 		return mine, err
 	}
@@ -194,7 +196,7 @@ func (d *AntreaIPAM) Check(args *invoke.Args, k8sArgs *argtypes.K8sArgs, network
 // Antrea IPAM annotation for the resource (only Namespace annotation is supported as
 // of today). If annotation is not present, or annotated IP Pool not found, the driver
 // will not own the request and fall back to next IPAM driver.
-func (d *AntreaIPAM) owns(k8sArgs *argtypes.K8sArgs) (bool, *poolallocator.IPPoolAllocator, []net.IP, *crdv1a2.IPAddressOwner, error) {
+func (d *AntreaIPAM) owns(k8sArgs *argtypes.K8sArgs, errFunc func(error) error) (bool, *poolallocator.IPPoolAllocator, []net.IP, *crdv1a2.IPAddressOwner, error) {
 	if d.controller == nil {
 		klog.Warningf("Antrea IPAM driver failed to initialize due to inconsistent configuration. Falling back to default IPAM")
 		return false, nil, nil, nil, nil
@@ -207,6 +209,9 @@ func (d *AntreaIPAM) owns(k8sArgs *argtypes.K8sArgs) (bool, *poolallocator.IPPoo
 	podName := string(k8sArgs.K8S_POD_NAME)
 	klog.V(2).InfoS("Inspecting IPAM annotation", "Namespace", namespace, "Pod", podName)
 	allocator, ips, reservedOwner, err := d.controller.getPoolAllocatorByPod(namespace, podName)
+	if errFunc != nil {
+		err = errFunc(err)
+	}
 	if err != nil {
 		// Failed to find pool - error should be returned from this driver
 		return true, nil, nil, nil, err
