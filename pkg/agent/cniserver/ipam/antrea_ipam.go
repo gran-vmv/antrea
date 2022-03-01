@@ -17,11 +17,14 @@ package ipam
 import (
 	"fmt"
 	"net"
+	"sync"
+	"time"
 
 	"github.com/containernetworking/cni/pkg/invoke"
 	cnitypes "github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/current"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
 	argtypes "antrea.io/antrea/pkg/agent/cniserver/types"
@@ -37,7 +40,8 @@ const (
 // if present. If annotation is not present, the driver will delegate functionality
 // to traditional IPAM driver.
 type AntreaIPAM struct {
-	controller *AntreaIPAMController
+	controller      *AntreaIPAMController
+	controllerMutex sync.RWMutex
 }
 
 // Global variable is needed to work around order of initialization
@@ -97,6 +101,8 @@ func generateIPConfig(ip net.IP, prefixLength int, gwIP net.IP) (*current.IPConf
 }
 
 func (d *AntreaIPAM) setController(controller *AntreaIPAMController) {
+	d.controllerMutex.Lock()
+	defer d.controllerMutex.Unlock()
 	d.controller = controller
 }
 
@@ -197,9 +203,17 @@ func (d *AntreaIPAM) Check(args *invoke.Args, k8sArgs *argtypes.K8sArgs, network
 // of today). If annotation is not present, or annotated IP Pool not found, the driver
 // will not own the request and fall back to next IPAM driver.
 func (d *AntreaIPAM) owns(k8sArgs *argtypes.K8sArgs, errFunc func(error) error) (bool, *poolallocator.IPPoolAllocator, []net.IP, *crdv1a2.IPAddressOwner, error) {
-	if d.controller == nil {
-		klog.Warningf("Antrea IPAM driver failed to initialize due to inconsistent configuration. Falling back to default IPAM")
-		return false, nil, nil, nil, nil
+	// Wait controller ready to avoid inappropriate behavior on CNI request
+	if err := wait.PollImmediate(500*time.Millisecond, 5*time.Second, func() (bool, error) {
+		d.controllerMutex.RLock()
+		defer d.controllerMutex.RUnlock()
+		if d.controller == nil {
+			klog.Warningf("Antrea IPAM driver is not ready.")
+			return false, nil
+		}
+		return true, nil
+	}); err != nil {
+		return false, nil, nil, nil, err
 	}
 
 	// As of today, only Namespace annotation is supported

@@ -105,8 +105,6 @@ func InitializeAntreaIPAMController(kubeClient clientset.Interface, crdClient cl
 		return nil, fmt.Errorf("Antrea IPAM driver failed to initialize")
 	}
 
-	antreaIPAMDriver.setController(antreaIPAMController)
-
 	return antreaIPAMController, nil
 }
 
@@ -121,6 +119,7 @@ func (c *AntreaIPAMController) Run(stopCh <-chan struct{}) {
 	if !cache.WaitForNamedCacheSync(controllerName, stopCh, c.namespaceInformer.Informer().HasSynced, c.ipPoolInformer.Informer().HasSynced, c.podInformer.HasSynced) {
 		return
 	}
+	antreaIPAMDriver.setController(c)
 
 	<-stopCh
 }
