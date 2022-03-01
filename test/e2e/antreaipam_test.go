@@ -250,7 +250,46 @@ func TestAntreaIPAM(t *testing.T) {
 		testAntreaIPAMStatefulSet(t, data, nil)
 		checkIPPoolsEmpty(t, data, ipPools)
 	})
+
+	/*t.Run("testHostPortPodConnectivityAll", func(t *testing.T) {
+		skipIfHasWindowsNodes(t)
+		data.testHostPortPodConnectivityAll(t)
+		checkIPPoolsEmpty(t, data, ipPools)
+	})*/
 }
+
+func (data *TestData) testHostPortPodConnectivityAll(t *testing.T) {
+	for _, ns := range []string{testNamespace, testAntreaIPAMNamespace, testAntreaIPAMNamespace11, testAntreaIPAMNamespace12} {
+		// Create a server Pod with hostPort set to 80.
+		if ns != testAntreaIPAMNamespace12 && ns != testNamespace {
+			hpPodName := randName("test-host-port-pod-")
+			hpPodPort := int32(80)
+			if err := data.createServerPod(hpPodName, ns, "", hpPodPort, true, false); err != nil {
+				t.Fatalf("Error when creating HostPort server Pod: %v", err)
+			}
+			defer deletePodWrapper(t, data, ns, hpPodName)
+			// Retrieve the IP Address of the Node on which the Pod is scheduled.
+			_, err := data.podWaitFor(defaultTimeout, hpPodName, ns, func(pod *corev1.Pod) (bool, error) {
+				return pod.Status.Phase == corev1.PodRunning, nil
+			})
+			if err != nil {
+				t.Fatalf("Error when waiting for Pod '%s': %v", hpPodName, err)
+			}
+		}
+		// Create client Pod to test connectivity.
+		clientName := randName("test-client-")
+		if err := data.createBusyboxPodOnNode(clientName, ns, "", false); err != nil {
+			t.Fatalf("Error when creating test client Pod: %v", err)
+		}
+		defer deletePodWrapper(t, data, ns, clientName)
+		if _, err := data.podWaitForIPs(defaultTimeout, clientName, ns); err != nil {
+			t.Fatalf("Error when waiting for IP for Pod '%s': %v", clientName, err)
+		}
+	}
+	t.Logf("AAAA")
+	time.Sleep(5*time.Hour)
+}
+
 
 func testAntreaIPAMPodConnectivitySameNode(t *testing.T, data *TestData) {
 	numPods := 2 // Two AntreaIPAM Pods, can be increased

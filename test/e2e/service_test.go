@@ -167,15 +167,18 @@ func (data *TestData) testNodePort(t *testing.T, isWindows bool, clientNamespace
 
 	// "wget" on busybox doesn't have parameters "--tries" and "--retry-connrefused"
 	cmd := []string{"wget", "-O", "-", url, "-T", "1"}
-	maxAttempts := 5
+	maxAttempts := 30
 	for i := 0; i < maxAttempts; i++ {
 		stdout, stderr, err := data.runCommandFromPod(clientNamespace, clientName, busyboxContainerName, cmd)
 		if err != nil {
 			if i < maxAttempts-1 {
+				t.Logf("Error when running command '%s' from Pod '%s', stdout: %s, stderr: %s, error: %v",
+					strings.Join(cmd, " "), clientName, stdout, stderr, err)
 				time.Sleep(time.Second)
 			} else {
 				t.Errorf("Error when running command '%s' from Pod '%s', stdout: %s, stderr: %s, error: %v",
 					strings.Join(cmd, " "), clientName, stdout, stderr, err)
+				time.Sleep(5*time.Hour)
 			}
 		} else {
 			t.Logf("wget from Pod '%s' to '%s' succeeded", clientName, url)
