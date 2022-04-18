@@ -20,8 +20,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
+	"os/signal"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -200,7 +203,22 @@ func testAntreaIPAMPodConnectivityDifferentNodes(t *testing.T, data *TestData) {
 	data.runPingMesh(t, podInfos, agnhostContainerName)
 }
 
+func waitSIGINT() {
+	quit := make(chan os.Signal)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	sig := <-quit
+	for {
+		time.Sleep(time.Millisecond * 500)
+		if sig.String() == "interrupt" {
+			break
+		}
+	}
+}
+
 func testAntreaIPAMStatefulSet(t *testing.T, data *TestData, dedicatedIPPoolKey *string) {
+	fmt.Println("IPPools and Namespaces were created. Press the Ctrl+C to continue...")
+	waitSIGINT()
+
 	stsName := randName("sts-test-")
 	ipPoolName := subnetIPv4RangesMap["0"].Name
 	if dedicatedIPPoolKey != nil {
@@ -226,6 +244,8 @@ func testAntreaIPAMStatefulSet(t *testing.T, data *TestData, dedicatedIPPoolKey 
 		t.Fatalf("Error when waiting for StatefulSet Pods to get IPs: %v", err)
 	}
 	checkStatefulSetIPPoolAllocation(t, data, stsName, testAntreaIPAMNamespace, ipPoolName, ipOffsets, reservedIPOffsets)
+	fmt.Println("StatefulSet with IPPool was created. Press the Ctrl+C to continue...")
+	waitSIGINT()
 
 	ipOffsets = []int32{0}
 	size = len(ipOffsets)
@@ -237,6 +257,8 @@ func testAntreaIPAMStatefulSet(t *testing.T, data *TestData, dedicatedIPPoolKey 
 		t.Fatalf("Error when waiting for StatefulSet Pods to get IPs: %v", err)
 	}
 	checkStatefulSetIPPoolAllocation(t, data, stsName, testAntreaIPAMNamespace, ipPoolName, ipOffsets, reservedIPOffsets)
+	fmt.Println("StatefulSet size was reduced. Press the Ctrl+C to continue...")
+	waitSIGINT()
 
 	podMutateFunc := func(pod *corev1.Pod) {
 		if pod.Annotations == nil {
@@ -278,6 +300,8 @@ func testAntreaIPAMStatefulSet(t *testing.T, data *TestData, dedicatedIPPoolKey 
 			},
 		},
 	}))
+	fmt.Println("Standalone Pod was created. Press the Ctrl+C to continue...")
+	waitSIGINT()
 
 	ipOffsets = []int32{0, 1, 3}
 	size = len(ipOffsets)
@@ -290,6 +314,8 @@ func testAntreaIPAMStatefulSet(t *testing.T, data *TestData, dedicatedIPPoolKey 
 		t.Fatalf("Error when waiting for StatefulSet Pods to get IPs: %v", err)
 	}
 	checkStatefulSetIPPoolAllocation(t, data, stsName, testAntreaIPAMNamespace, ipPoolName, ipOffsets, reservedIPOffsets)
+	fmt.Println("StatefulSet size was increased. Press the Ctrl+C to continue...")
+	waitSIGINT()
 
 	data.deletePodAndWait(defaultTimeout, testAntreaIPAMNamespace, podName)
 	_, err = data.restartStatefulSet(stsName, testAntreaIPAMNamespace)
@@ -301,6 +327,8 @@ func testAntreaIPAMStatefulSet(t *testing.T, data *TestData, dedicatedIPPoolKey 
 		t.Fatalf("Error when waiting for StatefulSet Pods to get IPs: %v", err)
 	}
 	checkStatefulSetIPPoolAllocation(t, data, stsName, testAntreaIPAMNamespace, ipPoolName, ipOffsets, reservedIPOffsets)
+	fmt.Println("StatefulSet was restarted. Press the Ctrl+C to continue...")
+	waitSIGINT()
 
 	cleanup()
 	checkStatefulSetIPPoolAllocation(t, data, stsName, testAntreaIPAMNamespace, ipPoolName, nil, nil)
