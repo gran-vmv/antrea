@@ -159,12 +159,12 @@ cd -
 export NO_PULL=1
 if [ "$DISTRO" == "ubuntu" ]; then
     if $COVERAGE; then
-        make build-ubuntu-coverage
+        VERSION="$VERSION" make build-ubuntu-coverage
     else
-        make
+        VERSION="$VERSION" make
     fi
 elif [ "$DISTRO" == "ubi" ]; then
-    make build-ubi
+    VERSION="$VERSION" make build-ubi
 fi
 
 popd > /dev/null

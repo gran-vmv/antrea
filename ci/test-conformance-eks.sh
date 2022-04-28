@@ -189,7 +189,7 @@ function deliver_antrea_to_eks() {
     docker image prune -f --filter "until=2h" || true > /dev/null
 
     cd ${GIT_CHECKOUT_DIR}
-    VERSION="$CLUSTER" make
+    DOCKER_REGISTRY="projects.registry.vmware.com" VERSION="$CLUSTER" ./hack/build-antrea-linux-all.sh --pull
     if [[ "$?" -ne "0" ]]; then
         echo "=== Antrea Image build failed ==="
         exit 1
@@ -238,10 +238,10 @@ function run_conformance() {
     fi
 
     echo "=== Cleanup Antrea Installation ==="
-    for antrea_yml in ${GIT_CHECKOUT_DIR}/build/yamls/*.yml
-    do
-        kubectl delete -f ${antrea_yml} --ignore-not-found=true || true
-    done
+#    for antrea_yml in ${GIT_CHECKOUT_DIR}/build/yamls/*.yml
+#    do
+#        kubectl delete -f ${antrea_yml} --ignore-not-found=true || true
+#    done
 }
 
 function cleanup_cluster() {
