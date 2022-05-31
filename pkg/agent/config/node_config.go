@@ -75,13 +75,14 @@ func (g *GatewayConfig) String() string {
 }
 
 type AdapterNetConfig struct {
-	Name       string
-	Index      int
-	MAC        net.HardwareAddr
-	IP         *net.IPNet
-	Gateway    string
-	DNSServers string
-	Routes     []interface{}
+	Name         string
+	OriginalName string
+	Index        int
+	MAC          net.HardwareAddr
+	IP           *net.IPNet
+	Gateway      string
+	DNSServers   string
+	Routes       []interface{}
 }
 
 type WireGuardConfig struct {

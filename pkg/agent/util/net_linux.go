@@ -237,3 +237,25 @@ func DeleteOVSPort(brName, portName string) error {
 	cmd := exec.Command("ovs-vsctl", "--if-exists", "del-port", brName, portName)
 	return cmd.Run()
 }
+
+// DeleteOVSBridge deletes specific OVS bridge. This function calls ovs-vsctl command to bypass OVS bridge client to work when agent exiting.
+func DeleteOVSBridge(brName string) error {
+	cmd := exec.Command("ovs-vsctl", "--if-exists", "del-br", brName)
+	return cmd.Run()
+}
+
+// ChangeAdapterName changes adapter name.
+func ChangeAdapterName(adapterName string, adapterNewName string, isUp bool) error {
+	klog.InfoS("Change adapter name","oldName", adapterName, "newName", adapterNewName)
+	link, err := netlink.LinkByName(adapterName)
+	if err != nil {
+		return err
+	}
+	if isUp {
+		defer netlink.LinkSetUp(link)
+	}
+	if err := netlink.LinkSetDown(link); err != nil {
+		return err
+	}
+	return netlink.LinkSetName(link, adapterNewName)
+}

@@ -38,6 +38,9 @@ const (
 
 	FamilyIPv4 uint8 = 4
 	FamilyIPv6 uint8 = 6
+
+	BridgedUplinkSuffix = "-antrea"
+	IFNAMSIZ            = 0x10
 )
 
 func generateInterfaceName(key string, name string, useHead bool) string {
@@ -377,4 +380,12 @@ func PortToUint16(port int) uint16 {
 	}
 	klog.Errorf("Port value %d out-of-bounds", port)
 	return 0
+}
+
+// ParseBridgedUplinkName parses the uplink interface name after bridged to OVS
+func ParseBridgedUplinkName(name string) string {
+	if len(name)+len(BridgedUplinkSuffix) >= IFNAMSIZ {
+		name = name[:IFNAMSIZ-len(BridgedUplinkSuffix)]
+	}
+	return name + BridgedUplinkSuffix
 }
