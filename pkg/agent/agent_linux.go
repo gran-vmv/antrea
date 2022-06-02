@@ -237,7 +237,11 @@ func (i *Initializer) ConnectUplinkToOVSBridge() error {
 	if err = util.ConfigureLinkAddresses(brLink.Attrs().Index, []*net.IPNet{uplinkNetConfig.IP}); err != nil {
 		return err
 	}
-	if err = util.ConfigureLinkAddresses(uplinkNetConfig.Index, nil); err != nil {
+	unmanagedIPs, err := GetUnmanagedIPs(uplinkNetConfig.Name, []*net.IPNet{uplinkNetConfig.IP})
+	if err != nil {
+		return err
+	}
+	if err = util.ConfigureLinkAddresses(uplinkNetConfig.Index, unmanagedIPs); err != nil {
 		return err
 	}
 	// Restore the host routes which are lost when moving the network configuration of the uplink interface to OVS bridge interface.
@@ -271,7 +275,9 @@ func (i *Initializer) RestoreOVSBridge() {
 		if err := util.DeleteOVSPort(brName, uplink); err != nil {
 			klog.ErrorS(err, "Removing uplink port from bridge failed", "uplink", uplink, "bridge", brName)
 		}
-		if err := util.ConfigureLinkAddresses(uplinkNetConfig.Index, []*net.IPNet{uplinkNetConfig.IP}); err != nil {
+		ips, _ := GetUnmanagedIPs(uplinkNetConfig.Name, nil)
+		ips = append(ips, uplinkNetConfig.IP)
+		if err := util.ConfigureLinkAddresses(uplinkNetConfig.Index, ips); err != nil {
 			klog.ErrorS(err, "Configure IP to uplink failed", "uplink", uplink)
 		}
 	}
@@ -293,4 +299,33 @@ func (i *Initializer) RestoreOVSBridge() {
 
 func (i *Initializer) setInterfaceMTU(iface string, mtu int) error {
 	return i.ovsBridgeClient.SetInterfaceMTU(iface, mtu)
+}
+
+func GetUnmanagedIPs(interfaceName string, managedIPs []*net.IPNet) ([]*net.IPNet, error) {
+	unmanagedIPs := []*net.IPNet{}
+	_, _, adapter, err := getTransportIPNetDeviceByName(interfaceName, "")
+	if err != nil {
+		return nil, err
+	}
+	addrs, _ := adapter.Addrs()
+	for _, addr := range addrs {
+		if ip, ipNet, err := net.ParseCIDR(addr.String()); err != nil {
+			klog.Warningf("Unable to parse addr %+v, err=%+v", addr, err)
+		} else if !ip.IsLinkLocalUnicast() {
+			ipNet.IP = ip
+			ipNetString := ipNet.String()
+			isManagedIP := false
+			for _, managedIP := range managedIPs {
+				if ipNetString == managedIP.String(){
+					isManagedIP = true
+					break
+				}
+			}
+			if !isManagedIP {
+				unmanagedIPs = append(unmanagedIPs, ipNet)
+			}
+		}
+	}
+	klog.InfoS("Found unmanaged IPs on interface", "IPs", unmanagedIPs, "interface", interfaceName)
+	return unmanagedIPs, nil
 }
