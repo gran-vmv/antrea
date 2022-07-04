@@ -29,6 +29,7 @@ _usage="Usage: $0 [--encap-mode <mode>] [--ip-family <v4|v6>] [--coverage] [--he
         --run                         Run only tests matching the regexp.
         --proxy-all                   Enables Antrea proxy with all Service support.
         --flow-visibility             Only run flow visibility related e2e tests.
+        --flexible-ipam               Enables Antrea Flexible-IPAM.
         --skip                        A comma-separated list of keywords, with which tests should be skipped.
         --coverage                    Enables measure Antrea code coverage when run e2e tests on kind.
         --setup-only                  Only perform setting up the cluster and run test.
@@ -62,6 +63,7 @@ mode=""
 ipfamily="v4"
 feature_gates=""
 proxy_all=false
+flexible_ipam=false
 flow_visibility=false
 coverage=false
 skiplist=""
@@ -92,6 +94,10 @@ case $key in
     ;;
     --flow-visibility)
     flow_visibility=true
+    shift
+    ;;
+    --flexible-ipam)
+    flexible_ipam=true
     shift
     ;;
     --skip)
@@ -145,6 +151,9 @@ if $proxy_all; then
 fi
 if $flow_visibility; then
     manifest_args="$manifest_args --feature-gates FlowExporter=true --extra-helm-values-file $FLOW_VISIBILITY_HELM_VALUES"
+fi
+if $flexible_ipam; then
+    manifest_args="$manifest_args --flexible-ipam"
 fi
 
 COMMON_IMAGES_LIST=("k8s.gcr.io/e2e-test-images/agnhost:2.29" \
@@ -204,6 +213,7 @@ function run_test {
   current_mode=$1
   coverage_args=""
   flow_visibility_args=""
+  flexible_ipam_args=""
 
   if $coverage; then
       $YML_CMD --encap-mode $current_mode $manifest_args | docker exec -i kind-control-plane dd of=/root/antrea-coverage.yml
@@ -238,13 +248,41 @@ function run_test {
   fi
   sleep 1
 
+  if $flexible_ipam; then
+    flexible_ipam_args="--antrea-ipam"
+  fi
+
   RUN_OPT=""
   if [ -n "$run" ]; then
     RUN_OPT="-run $run"
   fi
-  go test -v -timeout=$timeout $RUN_OPT antrea.io/antrea/test/e2e $flow_visibility_args -provider=kind --logs-export-dir=$ANTREA_LOG_DIR --skip=$skiplist $coverage_args
+  go test -v -timeout=$timeout $RUN_OPT antrea.io/antrea/test/e2e $flow_visibility_args -provider=kind --logs-export-dir=$ANTREA_LOG_DIR --skip=$skiplist $coverage_args $flexible_ipam_args
 }
 
+POD_SUBNET_IPV4="10.244.0.0/16"
+POD_SUBNET_IPV6="fd00:10:244::/56"
+if $flexible_ipam; then
+  echo "======== Test flexible-ipam mode =========="
+  if [[ $test_only == "false" ]];then
+    setup_cluster "--images \"$COMMON_IMAGES\""
+  fi
+  echo "===== Configure routes ====="
+  sudo ip route flush root ${POD_SUBNET_IPV4}
+  sudo ip -6 route flush root ${POD_SUBNET_IPV6}
+  for (( i=0; i<${#HOSTNAMES[@]}; i++ )); do
+      POD_CIDRS=($( (kubectl get node ${HOSTNAMES[i]} -o json | jq -r '.spec.podCIDRs | @sh') | tr -d \'\"))
+      for POD_CIDR in "${POD_CIDRS[@]}"; do
+          if [[ $POD_CIDR =~ .*:.* ]]
+          then
+              sudo ip -6 route add ${POD_CIDR} via ${IPV6S[i]}
+          else
+              sudo ip route add ${POD_CIDR} via ${IPV4S[i]}
+          fi
+      done
+  done
+  run_test noEncap
+  exit 0
+fi
 if [[ "$mode" == "" ]] || [[ "$mode" == "encap" ]]; then
   echo "======== Test encap mode =========="
   if [[ $test_only == "false" ]];then
