@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"time"
@@ -102,6 +103,15 @@ func run(o *Options) error {
 	if err != nil {
 		return fmt.Errorf("error creating K8s clients: %v", err)
 	}
+
+	gg,rr,_:=crdClient.Discovery().ServerGroupsAndResources()
+	gg2,_:=json.Marshal(gg)
+	rr2,_:=json.Marshal(rr)
+	klog.Errorf("AAAB: %s", string(gg2))
+	klog.Errorf("AAAB: %s", string(rr2))
+	rr,_=crdClient.Discovery().ServerPreferredResources()
+	rr2,_=json.Marshal(rr)
+	klog.Errorf("AAAB: %s", string(rr2))
 
 	informerFactory := informers.NewSharedInformerFactory(k8sClient, informerDefaultResync)
 	crdInformerFactory := crdinformers.NewSharedInformerFactory(crdClient, informerDefaultResync)
