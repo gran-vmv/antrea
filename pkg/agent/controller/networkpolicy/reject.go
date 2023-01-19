@@ -119,23 +119,21 @@ func (c *Controller) rejectRequest(pktIn *ofctrl.PacketIn) error {
 
 	sIface, srcIsLocal := c.ifaceStore.GetInterfaceByIP(srcIP)
 	dIface, dstIsLocal := c.ifaceStore.GetInterfaceByIP(dstIP)
-
+	// dstIsDirect means that the reject packet destination is on the same Node and the reject packet can be forwarded
+	// without leaving the OVS bridge.
+	dstIsDirect := dstIsLocal
+	matches := pktIn.GetMatches()
+	if c.antreaProxyEnabled && dstIsLocal {
+		// Check if OVS InPort matches dIface.
+		// If port doesn't match, set dstIsDirect to false since the reject packet destination should not be sent to
+		// local Pod directly.
+		if match := matches.GetMatchByName(binding.OxmFieldInPort); match != nil {
+			dstIsDirect = match.GetValue().(uint32) == uint32(dIface.OFPort)
+		}
+	}
 	isFlexibleIPAMSrc, isFlexibleIPAMDst, ctZone, err := parseFlexibleIPAMStatus(pktIn, c.nodeConfig, srcIP, srcIsLocal, dstIP, dstIsLocal)
 	if err != nil {
 		return err
-	}
-	matches := pktIn.GetMatches()
-	if isFlexibleIPAMSrc && dstIsLocal || isFlexibleIPAMDst {
-		// For an ingress reject rule with AntreaIPAM cross-VLAN traffic, the original packet comes from uplink/gateway
-		// port, and the reject packet should be sent to uplink/gateway port, and the reject type should be
-		// RejectLocalToRemote.
-		// Overwrite dstIsLocal to false to correct the result from getRejectType.
-		if match := matches.GetMatchByName(binding.OxmFieldInPort); match != nil {
-			switch match.GetValue().(uint32) {
-			case c.nodeConfig.UplinkNetConfig.OFPort, c.nodeConfig.GatewayConfig.OFPort:
-				dstIsLocal = false
-			}
-		}
 	}
 
 	// isServiceTraffic checks if it's a Service traffic when the destination of the
@@ -169,7 +167,7 @@ func (c *Controller) rejectRequest(pktIn *ofctrl.PacketIn) error {
 		gwIfaces := c.ifaceStore.GetInterfacesByType(interfacestore.GatewayInterface)
 		return dstIsLocal && dstMAC == gwIfaces[0].MAC.String()
 	}
-	packetOutType := getRejectType(isServiceTraffic(), c.antreaProxyEnabled, srcIsLocal, dstIsLocal)
+	packetOutType := getRejectType(isServiceTraffic(), c.antreaProxyEnabled, srcIsLocal, dstIsDirect)
 	if packetOutType == Unsupported {
 		return fmt.Errorf("error when generating reject response for the packet from: %s to %s: neither source nor destination are on this Node", dstIP, srcIP)
 	}
@@ -385,7 +383,7 @@ func parseFlexibleIPAMStatus(pktIn *ofctrl.PacketIn, nodeConfig *config.NodeConf
 	if dstIsLocal && nodeConfig.PodIPv4CIDR != nil && !nodeConfig.PodIPv4CIDR.Contains(net.ParseIP(dstIP)) {
 		isFlexibleIPAMDst = true
 	}
-	// ctZone is read from incoming packet.
+	// ctZone is read from the incoming packet.
 	// The generated reject packet should have same ctZone with the incoming packet, otherwise the conntrack cannot work properly.
 	matches := pktIn.GetMatches()
 	if match := getMatchRegField(matches, openflow.CtZoneField); match != nil {
